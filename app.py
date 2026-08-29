@@ -2,10 +2,12 @@ import streamlit as st
 import subprocess
 import os
 from faster_whisper import WhisperModel
+from indic_transliteration import sanscript
+from indic_transliteration.sanscript import transliterate
 
-st.set_page_config(page_title="Pro AI Subtitle Studio", layout="centered")
-st.title("🎬 Pro AI Subtitle & Enhancer Studio")
-st.caption("Alex Hormozi Style • Pop Bounce • Hinglish Support • Optional 4K Sharpness")
+st.set_page_config(page_title="AI Reel Subtitle Studio", layout="centered")
+st.title("🎬 AI Subtitle Studio (True Hinglish)")
+st.caption("Alex Hormozi Style • Pure Hinglish / Roman Script • Video Enhancer")
 
 @st.cache_resource
 def load_model():
@@ -20,10 +22,14 @@ def format_ass_time(seconds):
     centisecs = int((seconds - int(seconds)) * 100)
     return f"{hours:d}:{minutes:02d}:{secs:02d}.{centisecs:02d}"
 
+def devanagari_to_hinglish(text):
+    # Hindi Devanagari text ko English letters (ITRANS) me convert karta hai
+    return transliterate(text, sanscript.DEVANAGARI, sanscript.ITRANS)
+
 # 1. Video Upload
 uploaded_file = st.file_uploader("📁 Upload Reel / Video (MP4/MOV)", type=["mp4", "mov"])
 
-# 2. Subtitle Styling Options
+# 2. Controls & Styling
 st.subheader("🎨 Subtitle Styles & Animation")
 col1, col2 = st.columns(2)
 with col1:
@@ -52,16 +58,16 @@ with col2:
         ["Center-Bottom", "Middle Center", "Lower Bottom", "Top Header"]
     )
 
-# 3. Language & Output Mode (Hinglish / Translation Fix)
-st.subheader("🌐 Language & Translation")
+# 3. Output Language Selection
+st.subheader("🌐 Subtitle Language Mode")
 col_lang1, col_lang2 = st.columns(2)
 with col_lang1:
     sub_mode = st.selectbox(
-        "Subtitle Output Mode",
+        "Select Language Mode",
         [
-            "English Translation (English Words)",
-            "Hinglish / Roman Hindi (Audio as English Letters)",
-            "Original Audio"
+            "Pure Hinglish / Roman Hindi (Jaise bol rahe hain waisa text)",
+            "English Translation (Meaning in English)",
+            "Original Hindi (Devanagari)"
         ]
     )
 with col_lang2:
@@ -70,7 +76,6 @@ with col_lang2:
 # 4. Optional Quality Enhancer
 st.subheader("✨ Video Quality Settings")
 enable_enhancer = st.checkbox("Enable Video Quality & Sharpness Boost (Optional)", value=False)
-
 sharpness_level = "High Sharpness"
 if enable_enhancer:
     sharpness_level = st.select_slider(
@@ -79,13 +84,12 @@ if enable_enhancer:
         value="High Sharpness"
     )
 
-# 5. Processing & Rendering Logic
+# 5. Process & Generate
 if st.button("Generate Subtitles ⚡", type="primary") and uploaded_file is not None:
-    with st.spinner("Processing Audio Transcription & Styling Video..."):
+    with st.spinner("Transcribing and applying Hinglish subtitles..."):
         with open("temp_input.mp4", "wb") as f:
             f.write(uploaded_file.read())
 
-        # ASS BGR Colors
         color_map = {
             "Neon Yellow": "&H0000FFFF&",
             "Neon Green": "&H0000FF00&",
@@ -104,7 +108,6 @@ if st.button("Generate Subtitles ⚡", type="primary") and uploaded_file is not 
         }
         margin_v = pos_map.get(position, 450)
 
-        # Style tag mapping
         outline_size = 8
         shadow_size = 4
         if preset_style == "Alex Hormozi (Bounce + Pop)":
@@ -120,33 +123,18 @@ if st.button("Generate Subtitles ⚡", type="primary") and uploaded_file is not 
             outline_size = 5
             shadow_size = 2
 
-        # Language transcription configuration
-        if sub_mode == "English Translation (English Words)":
-            prompt_text = "Translate audio accurately into clear English words."
-            segments, _ = model.transcribe(
-                "temp_input.mp4",
-                word_timestamps=True,
-                task="translate",
-                initial_prompt=prompt_text
-            )
-        elif sub_mode == "Hinglish / Roman Hindi (Audio as English Letters)":
-            # Force Whisper to use Latin / Roman script for Hindi words
-            prompt_text = "Transcribe the Hindi and Urdu speech strictly using English Roman alphabet like: kya hal hai, kaise ho, video, subscribe, follow."
-            segments, _ = model.transcribe(
-                "temp_input.mp4",
-                word_timestamps=True,
-                language="en",
-                initial_prompt=prompt_text
-            )
+        # AI Transcription logic
+        if sub_mode == "English Translation (Meaning in English)":
+            segments, _ = model.transcribe("temp_input.mp4", word_timestamps=True, task="translate")
+            is_hinglish = False
+        elif sub_mode == "Pure Hinglish / Roman Hindi (Jaise bol rahe hain waisa text)":
+            # Native Hindi me transcribe karke English alphabet me badalna
+            segments, _ = model.transcribe("temp_input.mp4", word_timestamps=True, language="hi")
+            is_hinglish = True
         else:
-            prompt_text = "Transcribe clearly without Arabic or Urdu script."
-            segments, _ = model.transcribe(
-                "temp_input.mp4",
-                word_timestamps=True,
-                initial_prompt=prompt_text
-            )
+            segments, _ = model.transcribe("temp_input.mp4", word_timestamps=True, language="hi")
+            is_hinglish = False
 
-        # Header generation
         ass_header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
@@ -166,6 +154,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     start = format_ass_time(word.start)
                     end = format_ass_time(word.end)
                     text = word.word.strip()
+                    if is_hinglish:
+                        text = devanagari_to_hinglish(text)
                     if all_uppercase:
                         text = text.upper()
                     events.append(f"Dialogue: 0,{start},{end},ReelStyle,,0,0,0,,{effect_tag}{text}")
@@ -181,6 +171,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     end = format_ass_time(chunk[-1].end)
                     text_parts = [w.word.strip() for w in chunk]
                     text = " ".join(text_parts)
+                    if is_hinglish:
+                        text = devanagari_to_hinglish(text)
                     if all_uppercase:
                         text = text.upper()
                     events.append(f"Dialogue: 0,{start},{end},ReelStyle,,0,0,0,,{effect_tag}{text}")
@@ -189,6 +181,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 start = format_ass_time(segment.start)
                 end = format_ass_time(segment.end)
                 text = segment.text.strip()
+                if is_hinglish:
+                    text = devanagari_to_hinglish(text)
                 if all_uppercase:
                     text = text.upper()
                 events.append(f"Dialogue: 0,{start},{end},ReelStyle,,0,0,0,,{effect_tag}{text}")
@@ -196,7 +190,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         with open("subtitles.ass", "w", encoding="utf-8") as f:
             f.write(ass_header + "\n".join(events))
 
-        # Check quality enhancer toggle
         if enable_enhancer:
             if sharpness_level == "Subtle Clear":
                 enhance_filter = "unsharp=5:5:0.8:5:5:0.0,eq=contrast=1.05:saturation=1.1"
@@ -211,8 +204,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         cmd = f'ffmpeg -y -i temp_input.mp4 -vf "{vf_command}" -c:v libx264 -pix_fmt yuv420p -preset ultrafast -c:a aac output.mp4'
         subprocess.run(cmd, shell=True)
 
-        st.success("🎉 Video Ready!")
+        st.success("🎉 Reel Ready in Pure Hinglish!")
         st.video("output.mp4")
         with open("output.mp4", "rb") as file:
             st.download_button("📥 Download Styled Reel", data=file, file_name="styled_reel.mp4", mime="video/mp4")
-            
+    
