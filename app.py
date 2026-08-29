@@ -186,4 +186,59 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         st.video("output.mp4")
         with open("output.mp4", "rb") as file:
             st.download_button("📥 Download Styled Reel", data=file, file_name="styled_reel.mp4", mime="video/mp4")
-                
+                import cv2
+import numpy as np
+
+def detect_best_contrast_color(video_path):
+    cap = cv2.VideoCapture(video_path)
+    success, frame = cap.read()
+    cap.release()
+    
+    if not success or frame is None:
+        return "&H0000FFFF&" # Default Neon Yellow
+
+    # Subtitle zone (Bottom 30% area of video) crop karein
+    h, w, _ = frame.shape
+    bottom_crop = frame[int(h*0.7):h, 0:w]
+    
+    # Average Brightness & Color Dominance (BGR)
+    avg_b = np.mean(bottom_crop[:, :, 0])
+    avg_g = np.mean(bottom_crop[:, :, 1])
+    avg_r = np.mean(bottom_crop[:, :, 2])
+    brightness = 0.299 * avg_r + 0.587 * avg_g + 0.114 * avg_b
+
+    # 1. Agar background bahut light/white hai -> Cyan Blue ya Vibrant Red
+    if brightness > 150:
+        return "&H00FF5500&" # Deep Electric Cyan/Blue
+    
+    # 2. Agar background me Green/Nature zyada hai -> Bright Hot Pink / Red
+    elif avg_g > avg_r and avg_g > avg_b:
+        return "&H00D900FF&" # Hot Pink
+    
+    # 3. Agar background me Red/Warm lighting zyada hai -> Neon Green
+    elif avg_r > avg_g and avg_r > avg_b:
+        return "&H0000FF00&" # Neon Green
+    
+    # 4. Agar background Dark hai -> Neon Yellow (Highest visibility)
+    else:
+        return "&H0000FFFF&" # Neon Yellow
+    
+highlight_choice = st.selectbox(
+    "🎯 Highlight Color",
+    [
+        "🤖 Auto-Detect Best Color (AI Adaptive)",
+        "Neon Yellow",
+        "Neon Green",
+        "Cyan Blue",
+        "Hot Pink",
+        "Electric Orange",
+        "Bright Red"
+    ]
+)
+
+# Color Logic
+if highlight_choice == "🤖 Auto-Detect Best Color (AI Adaptive)":
+    active_color = detect_best_contrast_color("temp_input.mp4")
+else:
+    active_color = color_map.get(highlight_choice, "&H0000FFFF&")
+    
