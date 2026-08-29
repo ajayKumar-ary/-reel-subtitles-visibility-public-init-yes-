@@ -1,11 +1,16 @@
 import streamlit as st
 import subprocess
 import os
+import re
+import cv2
+import numpy as np
 import sqlite3
 import hashlib
 from faster_whisper import WhisperModel
-import vfx_engine as fx
+from indic_transliteration import sanscript
+from indic_transliteration.sanscript import transliterate
 
+# ==================== 1. PAGE SETUP & STYLING ====================
 st.set_page_config(
     page_title="CaptionVFX AI Studio Pro",
     page_icon="🎬",
@@ -13,10 +18,91 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ==================== DATABASE AUTH SYSTEM ====================
+# Modern Glassmorphism & Background CSS
+st.markdown("""
+<style>
+    .stApp {
+        background: linear-gradient(rgba(15, 23, 42, 0.88), rgba(15, 23, 42, 0.88)), 
+                    url("https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe");
+        background-size: cover;
+        background-position: center;
+        background-attachment: fixed;
+    }
+    [data-testid="stSidebar"] {
+        background-color: rgba(15, 23, 42, 0.95) !important;
+        backdrop-filter: blur(12px);
+    }
+    .main-title {
+        text-align: center;
+        padding: 0.8rem;
+        background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+        border-radius: 10px;
+        color: white;
+        margin-bottom: 1.5rem;
+    }
+    .main-title h2 { color: white !important; margin: 0; font-weight: 700; }
+    .main-title p { margin: 0.2rem 0 0 0; color: #e0e7ff; font-size: 0.95rem; }
+    .stButton button {
+        background: linear-gradient(90deg, #4f46e5, #7c3aed) !important;
+        color: white !important;
+        font-weight: 700 !important;
+        height: 3rem !important;
+        border-radius: 8px !important;
+    }
+    .auth-container {
+        max-width: 440px;
+        margin: 1.5rem auto;
+        padding: 2rem;
+        background: rgba(15, 23, 42, 0.75);
+        backdrop-filter: blur(16px);
+        border-radius: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+        text-align: center;
+    }
+    .auth-title {
+        font-size: 1.8rem;
+        font-weight: 800;
+        background: linear-gradient(135deg, #60a5fa, #a855f7);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 0.2rem;
+    }
+    .auth-sub { color: #94a3b8; font-size: 0.9rem; margin-bottom: 1.5rem; }
+    .social-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        width: 100%;
+        padding: 10px;
+        margin: 8px 0;
+        border-radius: 10px;
+        font-weight: 600;
+        font-size: 0.9rem;
+        text-decoration: none;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+    .google-btn { background: #ffffff; color: #1e293b !important; }
+    .fb-btn { background: #1877f2; color: #ffffff !important; }
+    .x-btn { background: #000000; color: #ffffff !important; border-color: #334155; }
+    .divider {
+        display: flex;
+        align-items: center;
+        text-align: center;
+        margin: 1.2rem 0;
+        color: #64748b;
+        font-size: 0.8rem;
+    }
+    .divider::before, .divider::after { content: ''; flex: 1; border-bottom: 1px solid #334155; }
+    .divider:not(:empty)::before { margin-right: .6em; }
+    .divider:not(:empty)::after { margin-left: .6em; }
+</style>
+""", unsafe_allow_html=True)
+
+# ==================== 2. DATABASE & AUTH ====================
 def get_db():
-    conn = sqlite3.connect("users.db", check_same_thread=False)
-    return conn
+    return sqlite3.connect("users.db", check_same_thread=False)
 
 def init_db():
     conn = get_db()
@@ -50,57 +136,37 @@ def verify_user(username, password):
 
 init_db()
 
-# Session State
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
 if "username" not in st.session_state:
     st.session_state["username"] = ""
 
-# ==================== MODERN UI STYLING & BACKGROUND ====================
-st.markdown("""
-<style>
-    .stApp {
-        background: linear-gradient(rgba(15, 23, 42, 0.88), rgba(15, 23, 42, 0.88)), 
-                    url("https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe");
-        background-size: cover;
-        background-position: center;
-        background-attachment: fixed;
-    }
-    [data-testid="stSidebar"] {
-        background-color: rgba(15, 23, 42, 0.95) !important;
-        backdrop-filter: blur(12px);
-    }
-    .main-title {
-        text-align: center;
-        padding: 0.8rem;
-        background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-        border-radius: 10px;
-        color: white;
-        margin-bottom: 1.5rem;
-    }
-    .main-title h2 { color: white !important; margin: 0; font-weight: 700; }
-    .main-title p { margin: 0.2rem 0 0 0; color: #e0e7ff; font-size: 0.95rem; }
-    .stButton button {
-        background: linear-gradient(90deg, #4f46e5, #7c3aed) !important;
-        color: white !important;
-        font-weight: 700 !important;
-        border-radius: 8px !important;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# ==================== LOGIN / SIGN-UP GATE ====================
+# Show Login if not Authenticated
 if not st.session_state["logged_in"]:
-    st.markdown("<div class='main-title'><h2>🔐 CaptionVFX AI • Access Portal</h2><p>Login or create an account to start editing</p></div>", unsafe_allow_html=True)
-    
-    col_l, col_center, col_r = st.columns([1, 1.8, 1])
+    col_l, col_center, col_r = st.columns([1, 1.4, 1])
     with col_center:
-        auth_tab1, auth_tab2 = st.tabs(["🔑 Login", "📝 Sign Up"])
-        
+        st.markdown("""
+        <div class="auth-container">
+            <div class="auth-title">CaptionVFX AI Studio</div>
+            <div class="auth-sub">Sign in to unlock 4K CapCut Subtitles & AI Motion</div>
+            <a href="#" class="social-btn google-btn">
+                <img src="https://www.svgrepo.com/show/475656/google-color.svg" width="18"/> Continue with Google
+            </a>
+            <a href="#" class="social-btn fb-btn">
+                <img src="https://www.svgrepo.com/show/475647/facebook-color.svg" width="18"/> Continue with Facebook
+            </a>
+            <a href="#" class="social-btn x-btn">
+                <img src="https://www.svgrepo.com/show/394532/twitter-x.svg" width="16" style="filter: invert(1);"/> Continue with X
+            </a>
+            <div class="divider">OR USE ACCOUNT</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        auth_tab1, auth_tab2 = st.tabs(["🔑 Sign In", "📝 Create Account"])
         with auth_tab1:
             login_u = st.text_input("Username", key="l_user")
             login_p = st.text_input("Password", type="password", key="l_pass")
-            if st.button("Login 🚀", use_container_width=True):
+            if st.button("Sign In to Studio 🚀", use_container_width=True):
                 if verify_user(login_u, login_p):
                     st.session_state["logged_in"] = True
                     st.session_state["username"] = login_u
@@ -111,17 +177,17 @@ if not st.session_state["logged_in"]:
         with auth_tab2:
             reg_u = st.text_input("Create Username", key="r_user")
             reg_p = st.text_input("Create Password", type="password", key="r_pass")
-            if st.button("Sign Up ✨", use_container_width=True):
+            if st.button("Create Account ✨", use_container_width=True):
                 if reg_u and reg_p:
                     if register_user(reg_u, reg_p):
-                        st.success("Account created successfully! Ab Login tab me jakar login karein.")
+                        st.success("Account created successfully! Ab Sign In tab me login karein.")
                     else:
-                        st.warning("Username already exists.")
+                        st.warning("Username pehle se registered hai.")
                 else:
-                    st.warning("Please fill both fields.")
+                    st.warning("Kripya dono fields fill karein.")
     st.stop()
 
-# ==================== AI MODEL LOADER ====================
+# ==================== 3. HELPER AI FUNCTIONS ====================
 @st.cache_resource
 def load_whisper_models():
     tiny = WhisperModel("tiny", device="cpu", compute_type="int8", cpu_threads=4)
@@ -130,7 +196,87 @@ def load_whisper_models():
 
 tiny_model, base_model = load_whisper_models()
 
-# ==================== LOGGED IN SIDEBAR CONTROLS ====================
+def format_ass_time(seconds):
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    centisecs = int((seconds - int(seconds)) * 100)
+    return f"{hours:d}:{minutes:02d}:{secs:02d}.{centisecs:02d}"
+
+def clean_to_roman_text(text):
+    has_devanagari = re.search(r'[\u0900-\u097F]', text)
+    if has_devanagari:
+        text = transliterate(text, sanscript.DEVANAGARI, sanscript.ITRANS)
+    text = re.sub(r'[\u0600-\u06FF\u0750-\u077F]', '', text)
+    return text.strip()
+
+def detect_best_contrast_color(video_path):
+    cap = cv2.VideoCapture(video_path)
+    cap.set(cv2.CAP_PROP_POS_MSEC, 1000)
+    success, frame = cap.read()
+    if not success or frame is None:
+        cap.set(cv2.CAP_PROP_POS_MSEC, 0)
+        success, frame = cap.read()
+    cap.release()
+    
+    if not success or frame is None:
+        return "&H0000FFFF&"
+    h, w, _ = frame.shape
+    bottom_crop = frame[int(h * 0.65):h, 0:w]
+    avg_b = float(np.mean(bottom_crop[:, :, 0]))
+    avg_g = float(np.mean(bottom_crop[:, :, 1]))
+    avg_r = float(np.mean(bottom_crop[:, :, 2]))
+    brightness = 0.299 * avg_r + 0.587 * avg_g + 0.114 * avg_b
+
+    if brightness > 150:
+        return "&H00FF5500&"  # Cyan Blue
+    elif avg_g > avg_r and avg_g > avg_b:
+        return "&H00D900FF&"  # Hot Pink
+    elif avg_r > avg_g and avg_r > avg_b:
+        return "&H0000FF00&"  # Neon Green
+    else:
+        return "&H0000FFFF&"  # Neon Yellow
+
+def classify_reel_vibe(transcript_text):
+    text_lower = transcript_text.lower()
+    if any(w in text_lower for w in ["welcome", "hello", "today", "aaj", "dekho", "listen", "secret", "kaise", "stop", "wait"]):
+        return {
+            "name": "⚡ Intro / High-Energy Hook",
+            "tag": r"{\t(0,70,\fscx130\fscy130)\t(70,140,\fscx100\fscy100)\shad6}",
+            "font": "Impact", "words": "1 Word", "outline": 8, "shadow": 4
+        }
+    elif any(w in text_lower for w in ["vlog", "travel", "trip", "morning", "life", "friends", "khana", "market", "day"]):
+        return {
+            "name": "🎬 Travel & Daily Vlog",
+            "tag": r"{\fad(140,80)}",
+            "font": "Montserrat Black", "words": "2-3 Words", "outline": 6, "shadow": 2
+        }
+    elif any(w in text_lower for w in ["hardwork", "success", "mehnat", "gym", "money", "focus", "goal", "mindset", "power"]):
+        return {
+            "name": "🔥 Motivation & Fitness",
+            "tag": r"{\blur6\t(0,60,\fscx120\fscy120)\t(60,120,\fscx100\fscy100)}",
+            "font": "Arial Black", "words": "1 Word", "outline": 10, "shadow": 5
+        }
+    else:
+        return {
+            "name": "🎙️ Podcast & Storytelling",
+            "tag": r"{\2c&H00FFFFFF&\k45}",
+            "font": "Trebuchet MS", "words": "2-3 Words", "outline": 6, "shadow": 3
+        }
+
+def attach_smart_emoji(word):
+    clean_w = re.sub(r'[^\w\s]', '', word.lower()).strip()
+    emoji_dict = {
+        "money": " 💰", "paisa": " 💰", "paise": " 💰", "cash": " 💵", "rich": " 🤑",
+        "fire": " 🔥", "viral": " 🚀", "super": " ⚡", "energy": " ⚡", "power": " 💥",
+        "gym": " 🏋️", "workout": " 💪", "hardwork": " 💪", "mehnat": " 🦾",
+        "love": " ❤️", "pyar": " ❤️", "dil": " ❤️", "happy": " 😄", "khush": " 😊",
+        "travel": " ✈️", "trip": " 🧳", "car": " 🚗", "gaadi": " 🚘", "bike": " 🏍️",
+        "phone": " 📱", "mobile": " 📱", "video": " 🎬", "stop": " 🛑", "time": " ⏰"
+    }
+    return word + emoji_dict.get(clean_w, "")
+
+# ==================== 4. SIDEBAR CONTROLS ====================
 st.sidebar.markdown(f"👤 **Account:** `{st.session_state['username']}`")
 if st.sidebar.button("🚪 Logout"):
     st.session_state["logged_in"] = False
@@ -140,16 +286,13 @@ if st.sidebar.button("🚪 Logout"):
 st.sidebar.markdown("---")
 st.sidebar.markdown("## ⚙️ Studio Controls")
 
-# 1. Speed Engine
 with st.sidebar.expander("⚡ Processing Speed Mode", expanded=True):
     perf_mode = st.radio("Select Engine Speed", ["🚀 Turbo Fast (5x Speed)", "🎯 Ultra Precision"])
 
-# 2. AI Auto Motion & Emojis
 with st.sidebar.expander("🤖 AI Motion & Emojis", expanded=True):
     auto_vibe = st.checkbox("AI Auto-Match Reel Type (Vlog/Intro/Podcast)", value=True)
     enable_emojis = st.checkbox("😍 Auto-Add Smart Emojis", value=True)
 
-# 3. Manual Style & VFX
 with st.sidebar.expander("🎨 Subtitle Styling & Presets", expanded=False):
     preset_style = st.selectbox(
         "✨ Animation Preset",
@@ -160,14 +303,12 @@ with st.sidebar.expander("🎨 Subtitle Styling & Presets", expanded=False):
     font_size = st.slider("📏 Font Size", 40, 130, 80, step=5)
     position = st.selectbox("📍 Text Position", ["Center-Bottom", "Middle Center", "Lower Bottom", "Top Header"])
 
-# 4. Highlight Color
 with st.sidebar.expander("🎯 Color Settings", expanded=False):
     highlight_color_choice = st.selectbox(
         "Highlight Color",
         ["🤖 Auto-Detect (Video AI Contrast)", "Neon Yellow", "Neon Green", "Cyan Blue", "Hot Pink", "Electric Orange", "Bright Red"]
     )
 
-# 5. Language Engine
 with st.sidebar.expander("🌐 Language & Translation", expanded=False):
     language_choice = st.selectbox(
         "Select Audio Language",
@@ -176,7 +317,6 @@ with st.sidebar.expander("🌐 Language & Translation", expanded=False):
     translate_to_en = st.checkbox("🔄 Translate to English Words", value=False)
     all_uppercase = st.checkbox("🔠 Convert All to UPPERCASE", value=True)
 
-# 6. Slow Motion & 4K Enhancer
 with st.sidebar.expander("⏱️ Slow-Mo & 4K Clarity", expanded=False):
     enable_slowmo = st.checkbox("Enable Slow Motion", value=False)
     speed_rate = "0.5x (Smooth Half Speed)"
@@ -189,7 +329,7 @@ with st.sidebar.expander("⏱️ Slow-Mo & 4K Clarity", expanded=False):
     if enable_enhancer:
         sharpness_level = st.select_slider("Sharpness Level", options=["Subtle Clear", "High Sharpness", "Ultra 4K Feel"], value="High Sharpness")
 
-# ==================== MAIN WORKSPACE ====================
+# ==================== 5. MAIN WORKSPACE ====================
 st.markdown("""
 <div class="main-title">
     <h2>🎬 CaptionVFX AI Studio Pro</h2>
@@ -230,7 +370,7 @@ if uploaded_file:
             }
 
             if "Auto-Detect" in highlight_color_choice:
-                active_color = fx.detect_best_contrast_color("temp_input.mp4")
+                active_color = detect_best_contrast_color("temp_input.mp4")
             else:
                 active_color = color_map.get(highlight_color_choice, "&H0000FFFF&")
 
@@ -258,7 +398,7 @@ if uploaded_file:
             full_text = " ".join([seg.text for seg in segments])
 
             if auto_vibe:
-                vibe_info = fx.classify_reel_vibe(full_text)
+                vibe_info = classify_reel_vibe(full_text)
                 st.success(f"🎯 AI Detected Video Genre: **{vibe_info['name']}**")
                 effect_tag = f"{{\\c{active_color}" + vibe_info["tag"][1:]
                 chosen_font = vibe_info["font"]
@@ -310,11 +450,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if "1 Word" in chosen_layout:
                 for segment in segments:
                     for word in segment.words:
-                        start = fx.format_ass_time(word.start * speed_factor)
-                        end = fx.format_ass_time(word.end * speed_factor)
+                        start = format_ass_time(word.start * speed_factor)
+                        end = format_ass_time(word.end * speed_factor)
                         raw_w = word.word.strip()
-                        if enable_emojis: raw_w = fx.attach_smart_emoji(raw_w)
-                        text = fx.clean_to_roman_text(raw_w) if convert_to_roman else raw_w
+                        if enable_emojis: raw_w = attach_smart_emoji(raw_w)
+                        text = clean_to_roman_text(raw_w) if convert_to_roman else raw_w
                         if all_uppercase: text = text.upper()
                         if text: events.append(f"Dialogue: 0,{start},{end},ReelStyle,,0,0,0,,{effect_tag}{text}")
             elif "2-3 Words" in chosen_layout:
@@ -323,62 +463,4 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     chunk_size = 3
                     for i in range(0, len(words), chunk_size):
                         chunk = words[i:i + chunk_size]
-                        if not chunk: continue
-                        start = fx.format_ass_time(chunk[0].start * speed_factor)
-                        end = fx.format_ass_time(chunk[-1].end * speed_factor)
-                        parts = []
-                        for w in chunk:
-                            raw_w = w.word.strip()
-                            if enable_emojis: raw_w = fx.attach_smart_emoji(raw_w)
-                            cleaned_w = fx.clean_to_roman_text(raw_w) if convert_to_roman else raw_w
-                            parts.append(cleaned_w)
-                        text = " ".join(parts)
-                        if all_uppercase: text = text.upper()
-                        if text: events.append(f"Dialogue: 0,{start},{end},ReelStyle,,0,0,0,,{effect_tag}{text}")
-            else:
-                for segment in segments:
-                    start = fx.format_ass_time(segment.start * speed_factor)
-                    end = fx.format_ass_time(segment.end * speed_factor)
-                    raw_seg_words = segment.text.strip().split()
-                    if enable_emojis: raw_seg_words = [fx.attach_smart_emoji(w) for w in raw_seg_words]
-                    raw_seg = " ".join(raw_seg_words)
-                    text = fx.clean_to_roman_text(raw_seg) if convert_to_roman else raw_seg
-                    if all_uppercase: text = text.upper()
-                    if text: events.append(f"Dialogue: 0,{start},{end},ReelStyle,,0,0,0,,{effect_tag}{text}")
-
-            with open("subtitles.ass", "w", encoding="utf-8") as f:
-                f.write(ass_header + "\n".join(events))
-
-            vf_filters = ["ass=subtitles.ass"]
-            af_filters = []
-
-            if enable_slowmo:
-                if "0.75x" in speed_rate:
-                    vf_filters.insert(0, "setpts=1.333*PTS")
-                    af_filters.append("atempo=0.75")
-                elif "0.5x" in speed_rate:
-                    vf_filters.insert(0, "setpts=2.0*PTS")
-                    af_filters.append("atempo=0.5")
-                elif "0.25x" in speed_rate:
-                    vf_filters.insert(0, "setpts=4.0*PTS")
-                    af_filters.append("atempo=0.5,atempo=0.5")
-
-            if enable_enhancer:
-                if sharpness_level == "Subtle Clear":
-                    vf_filters.append("unsharp=5:5:0.8:5:5:0.0,eq=contrast=1.05:saturation=1.1")
-                elif sharpness_level == "High Sharpness":
-                    vf_filters.append("unsharp=7:7:1.4:7:7:0.0,eq=contrast=1.1:saturation=1.15")
-                else:
-                    vf_filters.append("unsharp=9:9:1.8:9:9:0.0,eq=contrast=1.15:saturation=1.22:brightness=0.01")
-
-            vf_str = ",".join(vf_filters)
-            af_str = f'-af "{",".join(af_filters)}"' if af_filters else '-c:a aac'
-
-            cmd = f'ffmpeg -y -i temp_input.mp4 -vf "{vf_str}" {af_str} -c:v libx264 -pix_fmt yuv420p -preset ultrafast -threads 4 output.mp4'
-            subprocess.run(cmd, shell=True)
-
-            st.success("⚡ Video Rendered Successfully!")
-            st.video("output.mp4")
-            with open("output.mp4", "rb") as file:
-                st.download_button("📥 Download Final Reel", data=file, file_name="caption_vfx_reel.mp4", mime="video/mp4", use_container_width=True)
-        
+                        if not chunk: con
