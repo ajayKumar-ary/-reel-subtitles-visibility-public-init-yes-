@@ -1,0 +1,19 @@
+/* Main Website Background Image */
+.stApp {
+    background: linear-gradient(rgba(15, 23, 42, 0.88), rgba(15, 23, 42, 0.88)), 
+                url("https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe");
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+}
+
+/* Sidebar Styling */
+[data-testid="stSidebar"] {
+    background-color: rgba(15, 23, 42, 0.95) !important;
+    backdrop-filter: blur(12px);
+}
+
+/* Custom Text and Cards */
+.stMarkdown, h1, h2, h3, p {
+    color: #ffffff !important;
+}
