@@ -23,11 +23,22 @@ st.set_page_config(
 SMTP_SENDER_EMAIL = "tiwariajaykumar690@gmail.com"
 SMTP_SENDER_PASSWORD = "zcnqpshuswnhztto"
 
-# Database Init
-conn = sqlite3.connect("users.db", check_same_thread=False)
-c = conn.cursor()
-c.execute("CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, password TEXT NOT NULL)")
-conn.commit()
+# ==================== THREAD-SAFE DATABASE ====================
+DB_FILE = "users_v2.db"
+
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            email TEXT PRIMARY KEY,
+            password TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+init_db()
 
 def hash_pw(pw):
     return hashlib.sha256(pw.encode()).hexdigest()
@@ -35,19 +46,28 @@ def hash_pw(pw):
 def register_user(email, pw):
     email = email.strip().lower()
     try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
         c.execute("INSERT INTO users (email, password) VALUES (?, ?)", (email, hash_pw(pw)))
         conn.commit()
+        conn.close()
         return True
     except Exception:
         return False
 
 def verify_user(email, pw):
     email = email.strip().lower()
-    c.execute("SELECT password FROM users WHERE email = ?", (email,))
-    row = c.fetchone()
-    if row and row[0] == hash_pw(pw):
-        return True
-    return False
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("SELECT password FROM users WHERE email = ?", (email,))
+        row = c.fetchone()
+        conn.close()
+        if row and row[0] == hash_pw(pw):
+            return True
+        return False
+    except Exception:
+        return False
 
 def send_otp(target, code):
     try:
@@ -66,7 +86,7 @@ def send_otp(target, code):
     except Exception:
         return False
 
-# Session States
+# ==================== SESSION STATE ====================
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
 if "user_email" not in st.session_state:
@@ -100,9 +120,9 @@ if not st.session_state["logged_in"]:
                 if send_otp(r_email.strip().lower(), gen_code):
                     st.session_state["otp_code"] = gen_code
                     st.session_state["otp_target"] = r_email.strip().lower()
-                    st.success("OTP sent to your email!")
+                    st.success("OTP sent to your email! Inbox check karein.")
                 else:
-                    st.error("Email sending failed. Please check your email ID.")
+                    st.error("Email send failed. Make sure your email is correct.")
             else:
                 st.warning("Enter a valid email address.")
 
@@ -112,7 +132,7 @@ if not st.session_state["logged_in"]:
             if st.button("✅ Verify & Register", use_container_width=True):
                 if user_otp.strip() == st.session_state["otp_code"]:
                     if register_user(st.session_state["otp_target"], r_pass):
-                        st.success("Registered! Now go to Sign In tab.")
+                        st.success("Account created successfully! Ab Sign In tab me jakar login karein.")
                         st.session_state["otp_code"] = None
                     else:
                         st.warning("Email already registered.")
@@ -194,7 +214,6 @@ if uploaded_file:
 
                 segments = list(segs_gen)
 
-                # ASS Subtitle File Generation
                 ass_header = "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: ReelStyle,Arial Black,80,&H0000FFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,2,0,1,8,4,2,20,20,450,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
                 
                 events = []
@@ -252,3 +271,4 @@ if uploaded_file:
                 st.video("output.mp4")
                 with open("output.mp4", "rb") as file:
                     st.download_button("📥 Download Final Video", data=file, file_name="captioned_reel.mp4", mime="video/mp4", use_container_width=True)
+                        
