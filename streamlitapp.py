@@ -20,19 +20,12 @@ def format_ass_time(seconds):
     return f"{hours:d}:{minutes:02d}:{secs:02d}.{centisecs:02d}"
 
 uploaded_file = st.file_uploader("Upload Reel / Video", type=["mp4", "mov"])
-
-# Language & Translation Mode Selector
-col1, col2 = st.columns(2)
-with col1:
-    sub_mode = st.selectbox("Subtitle Language / Mode", ["Translate to English (Recommended)", "Original Audio (Auto-Detect)", "Force English"])
-with col2:
-    highlight_color = st.selectbox("Highlight Color", ["Yellow", "Neon Green", "Cyan Blue", "Bright Red"])
-
+highlight_color = st.selectbox("Highlight Color", ["Yellow", "Neon Green", "Cyan Blue", "Bright Red"])
 font_size = st.slider("Font Size", 40, 110, 75)
 position = st.radio("Position", ["Center-Bottom", "Center", "Bottom"])
 
 if st.button("Generate Subtitles ⚡") and uploaded_file is not None:
-    with st.spinner("Processing & Rendering Subtitles..."):
+    with st.spinner("Processing & Rendering Subtitles in English..."):
         with open("temp_input.mp4", "wb") as f:
             f.write(uploaded_file.read())
 
@@ -45,13 +38,8 @@ if st.button("Generate Subtitles ⚡") and uploaded_file is not None:
         active_color = color_map.get(highlight_color, "&H0000FFFF&")
         margin_v = 400 if position == "Center-Bottom" else (800 if position == "Center" else 200)
 
-        # Mode setup taaki Urdu script na aaye
-        if sub_mode == "Translate to English (Recommended)":
-            segments, _ = model.transcribe("temp_input.mp4", word_timestamps=True, task="translate")
-        elif sub_mode == "Force English":
-            segments, _ = model.transcribe("temp_input.mp4", word_timestamps=True, language="en")
-        else:
-            segments, _ = model.transcribe("temp_input.mp4", word_timestamps=True)
+        # task="translate" lagane se kabhi Urdu ya galat bhasha nahi aayegi, direct English subtitles banenge
+        segments, _ = model.transcribe("temp_input.mp4", word_timestamps=True, task="translate")
 
         ass_header = f"""[Script Info]
 ScriptType: v4.00+
@@ -79,8 +67,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         cmd = 'ffmpeg -y -i temp_input.mp4 -vf "ass=subtitles.ass" -c:v libx264 -pix_fmt yuv420p -preset ultrafast -c:a aac output.mp4'
         subprocess.run(cmd, shell=True)
 
-        st.success("Subtitles Ready!")
+        st.success("Subtitles Complete!")
         st.video("output.mp4")
         with open("output.mp4", "rb") as file:
             st.download_button("Download Styled Reel", data=file, file_name="styled_reel.mp4", mime="video/mp4")
-      
+            
