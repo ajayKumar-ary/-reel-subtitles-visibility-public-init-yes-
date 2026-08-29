@@ -6,6 +6,10 @@ import cv2
 import numpy as np
 import sqlite3
 import hashlib
+import random
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from faster_whisper import WhisperModel
 from indic_transliteration import sanscript
 from indic_transliteration.sanscript import transliterate
@@ -18,7 +22,11 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Modern Glassmorphism & Background CSS
+# ----------------- SENDER EMAIL & APP PASSWORD -----------------
+SMTP_SENDER_EMAIL = "tiwariajaykumar690@gmail.com"
+SMTP_SENDER_PASSWORD = "zcnqpshuswnhztto"
+# ---------------------------------------------------------------
+
 st.markdown("""
 <style>
     .stApp {
@@ -50,10 +58,10 @@ st.markdown("""
         border-radius: 8px !important;
     }
     .auth-container {
-        max-width: 440px;
+        max-width: 450px;
         margin: 1.5rem auto;
         padding: 2rem;
-        background: rgba(15, 23, 42, 0.75);
+        background: rgba(15, 23, 42, 0.8);
         backdrop-filter: blur(16px);
         border-radius: 20px;
         border: 1px solid rgba(255, 255, 255, 0.12);
@@ -69,125 +77,159 @@ st.markdown("""
         margin-bottom: 0.2rem;
     }
     .auth-sub { color: #94a3b8; font-size: 0.9rem; margin-bottom: 1.5rem; }
-    .social-btn {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 10px;
-        width: 100%;
-        padding: 10px;
-        margin: 8px 0;
-        border-radius: 10px;
-        font-weight: 600;
-        font-size: 0.9rem;
-        text-decoration: none;
-        border: 1px solid rgba(255, 255, 255, 0.15);
-    }
-    .google-btn { background: #ffffff; color: #1e293b !important; }
-    .fb-btn { background: #1877f2; color: #ffffff !important; }
-    .x-btn { background: #000000; color: #ffffff !important; border-color: #334155; }
-    .divider {
-        display: flex;
-        align-items: center;
-        text-align: center;
-        margin: 1.2rem 0;
-        color: #64748b;
-        font-size: 0.8rem;
-    }
-    .divider::before, .divider::after { content: ''; flex: 1; border-bottom: 1px solid #334155; }
-    .divider:not(:empty)::before { margin-right: .6em; }
-    .divider:not(:empty)::after { margin-left: .6em; }
 </style>
 """, unsafe_allow_html=True)
 
-# ==================== 2. DATABASE & AUTH ====================
+# ==================== 2. EMAIL DATABASE & OTP ENGINE ====================
 def get_db():
     return sqlite3.connect("users.db", check_same_thread=False)
 
 def init_db():
     conn = get_db()
     c = conn.cursor()
-    c.execute('CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT NOT NULL)')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            email TEXT PRIMARY KEY,
+            password TEXT NOT NULL
+        )
+    ''')
     conn.commit()
     conn.close()
+
+def is_valid_email(email):
+    pattern = r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$'
+    return re.match(pattern, email.strip()) is not None
 
 def hash_pw(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
-def register_user(username, password):
+def register_user(email, password):
+    email = email.strip().lower()
     conn = get_db()
     c = conn.cursor()
     try:
-        c.execute('INSERT INTO users (username, password) VALUES (?, ?)', (username, hash_pw(password)))
+        c.execute('INSERT INTO users (email, password) VALUES (?, ?)', (email, hash_pw(password)))
         conn.commit()
-        return True
+        return True, "Account verify ho gaya! Ab Sign In karein."
     except sqlite3.IntegrityError:
-        return False
+        return False, "Yeh Email pehle se registered hai."
     finally:
         conn.close()
 
-def verify_user(username, password):
+def verify_user(email, password):
+    email = email.strip().lower()
     conn = get_db()
     c = conn.cursor()
-    c.execute('SELECT password FROM users WHERE username = ?', (username,))
+    c.execute('SELECT password FROM users WHERE email = ?', (email,))
     row = c.fetchone()
     conn.close()
     return True if row and row[0] == hash_pw(password) else False
+
+def send_otp_email(target_email, otp_code):
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = f"CaptionVFX AI Studio <{SMTP_SENDER_EMAIL}>"
+        msg['To'] = target_email
+        msg['Subject'] = f"Your Verification OTP: {otp_code} - CaptionVFX Studio"
+
+        body = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; background-color: #0f172a; color: #ffffff; padding: 20px; border-radius: 10px;">
+            <h2 style="color: #818cf8;">CaptionVFX AI Studio</h2>
+            <p>Aapka one-time verification code (OTP) neeche diya gaya hai:</p>
+            <div style="background: #1e293b; padding: 15px; border-radius: 8px; font-size: 28px; font-weight: bold; letter-spacing: 5px; color: #38bdf8; text-align: center; margin: 20px 0;">
+                {otp_code}
+            </div>
+            <p style="color: #94a3b8; font-size: 13px;">Yeh OTP 10 minute ke liye valid hai. Kisi ke sath share na karein.</p>
+        </body>
+        </html>
+        """
+        msg.attach(MIMEText(body, 'html'))
+
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(SMTP_SENDER_EMAIL, SMTP_SENDER_PASSWORD)
+        server.send_message(msg)
+        server.quit()
+        return True, "OTP successfully bhej diya gaya hai! Inbox check karein."
+    except Exception as e:
+        return False, f"Email send failed: {str(e)}"
 
 init_db()
 
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
-if "username" not in st.session_state:
-    st.session_state["username"] = ""
+if "user_email" not in st.session_state:
+    st.session_state["user_email"] = ""
+if "generated_otp" not in st.session_state:
+    st.session_state["generated_otp"] = None
+if "otp_target_email" not in st.session_state:
+    st.session_state["otp_target_email"] = ""
 
-# Show Login if not Authenticated
+# ==================== AUTHENTICATION & OTP PORTAL ====================
 if not st.session_state["logged_in"]:
     col_l, col_center, col_r = st.columns([1, 1.4, 1])
     with col_center:
         st.markdown("""
         <div class="auth-container">
             <div class="auth-title">CaptionVFX AI Studio</div>
-            <div class="auth-sub">Sign in to unlock 4K CapCut Subtitles & AI Motion</div>
-            <a href="#" class="social-btn google-btn">
-                <img src="https://www.svgrepo.com/show/475656/google-color.svg" width="18"/> Continue with Google
-            </a>
-            <a href="#" class="social-btn fb-btn">
-                <img src="https://www.svgrepo.com/show/475647/facebook-color.svg" width="18"/> Continue with Facebook
-            </a>
-            <a href="#" class="social-btn x-btn">
-                <img src="https://www.svgrepo.com/show/394532/twitter-x.svg" width="16" style="filter: invert(1);"/> Continue with X
-            </a>
-            <div class="divider">OR USE ACCOUNT</div>
+            <div class="auth-sub">Enter Email & Verify OTP to Access Video Studio</div>
         </div>
         """, unsafe_allow_html=True)
 
-        auth_tab1, auth_tab2 = st.tabs(["🔑 Sign In", "📝 Create Account"])
+        auth_tab1, auth_tab2 = st.tabs(["🔑 Sign In", "📝 Create Account (OTP)"])
+        
+        # TAB 1: SIGN IN
         with auth_tab1:
-            login_u = st.text_input("Username", key="l_user")
-            login_p = st.text_input("Password", type="password", key="l_pass")
+            login_email = st.text_input("Email Address", placeholder="name@example.com", key="l_email")
+            login_pass = st.text_input("Password", type="password", key="l_pass")
             if st.button("Sign In to Studio 🚀", use_container_width=True):
-                if verify_user(login_u, login_p):
+                if not is_valid_email(login_email):
+                    st.error("Kripya valid email address format daalein.")
+                elif verify_user(login_email, login_pass):
                     st.session_state["logged_in"] = True
-                    st.session_state["username"] = login_u
+                    st.session_state["user_email"] = login_email.strip().lower()
                     st.rerun()
                 else:
-                    st.error("Invalid Username or Password!")
+                    st.error("Galat Email ya Password! Pehle Create Account tab me OTP verify karke account banayein.")
 
+        # TAB 2: SIGN UP WITH OTP
         with auth_tab2:
-            reg_u = st.text_input("Create Username", key="r_user")
-            reg_p = st.text_input("Create Password", type="password", key="r_pass")
-            if st.button("Create Account ✨", use_container_width=True):
-                if reg_u and reg_p:
-                    if register_user(reg_u, reg_p):
-                        st.success("Account created successfully! Ab Sign In tab me login karein.")
-                    else:
-                        st.warning("Username pehle se registered hai.")
+            reg_email = st.text_input("Your Email Address", placeholder="name@example.com", key="r_email")
+            
+            if st.button("📩 Send 6-Digit OTP", use_container_width=True):
+                if not is_valid_email(reg_email):
+                    st.error("Kripya valid email enter karein.")
                 else:
-                    st.warning("Kripya dono fields fill karein.")
+                    otp = str(random.randint(100000, 999999))
+                    success, msg = send_otp_email(reg_email.strip().lower(), otp)
+                    if success:
+                        st.session_state["generated_otp"] = otp
+                        st.session_state["otp_target_email"] = reg_email.strip().lower()
+                        st.success(msg)
+                    else:
+                        st.error(msg)
+            
+            if st.session_state["generated_otp"]:
+                st.info(f"📧 Verification OTP sent to: `{st.session_state['otp_target_email']}`")
+                user_entered_otp = st.text_input("Enter 6-Digit OTP", max_chars=6, key="otp_input")
+                reg_pass = st.text_input("Create Password", type="password", key="r_pass")
+                
+                if st.button("✅ Verify OTP & Create Account", use_container_width=True):
+                    if user_entered_otp.strip() != st.session_state["generated_otp"]:
+                        st.error("Galat OTP code! Email check karke sahi 6-digit OTP daalein.")
+                    elif len(reg_pass) < 4:
+                        st.warning("Password kam se kam 4 characters ka banayein.")
+                    else:
+                        success, reg_msg = register_user(st.session_state["otp_target_email"], reg_pass)
+                        if success:
+                            st.success(reg_msg)
+                            st.session_state["generated_otp"] = None
+                        else:
+                            st.warning(reg_msg)
     st.stop()
 
-# ==================== 3. HELPER AI FUNCTIONS ====================
+# ==================== 3. AI SUBTITLE & VFX FUNCTIONS ====================
 @st.cache_resource
 def load_whisper_models():
     tiny = WhisperModel("tiny", device="cpu", compute_type="int8", cpu_threads=4)
@@ -277,10 +319,10 @@ def attach_smart_emoji(word):
     return word + emoji_dict.get(clean_w, "")
 
 # ==================== 4. SIDEBAR CONTROLS ====================
-st.sidebar.markdown(f"👤 **Account:** `{st.session_state['username']}`")
+st.sidebar.markdown(f"📧 **Verified User:** `{st.session_state['user_email']}`")
 if st.sidebar.button("🚪 Logout"):
     st.session_state["logged_in"] = False
-    st.session_state["username"] = ""
+    st.session_state["user_email"] = ""
     st.rerun()
 
 st.sidebar.markdown("---")
@@ -355,7 +397,6 @@ if uploaded_file:
             with open("temp_input.mp4", "wb") as f:
                 f.write(uploaded_file.read())
 
-            # Fast Audio Extraction
             subprocess.run(
                 "ffmpeg -y -i temp_input.mp4 -vn -acodec pcm_s16le -ar 16000 -ac 1 temp_audio.wav",
                 shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
@@ -418,49 +459,4 @@ if uploaded_file:
                 elif "Neon Cyberpunk" in preset_style:
                     effect_tag = f"{{\\c{active_color}\\blur7\\3c{active_color}\\shad0}}"
                     outline_size = 4
-                elif "3D Deep Shadow" in preset_style:
-                    effect_tag = f"{{\\c{active_color}\\shad10\\4c&H00000000&}}"
-                    outline_size = 10
-                elif "Fade-In Up" in preset_style:
-                    effect_tag = f"{{\\c{active_color}\\fad(120,60)}}"
-                else:
-                    effect_tag = f"{{\\c{active_color}}}"
-                    outline_size = 5
-                    shadow_size = 2
-
-            speed_factor = 1.0
-            if enable_slowmo:
-                if "0.75x" in speed_rate: speed_factor = 1.0 / 0.75
-                elif "0.5x" in speed_rate: speed_factor = 2.0
-                elif "0.25x" in speed_rate: speed_factor = 4.0
-
-            ass_header = f"""[Script Info]
-ScriptType: v4.00+
-PlayResX: 1080
-PlayResY: 1920
-
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: ReelStyle,{chosen_font},{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,2,0,1,{outline_size},{shadow_size},2,20,20,{margin_v},1
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-"""
-            events = []
-            if "1 Word" in chosen_layout:
-                for segment in segments:
-                    for word in segment.words:
-                        start = format_ass_time(word.start * speed_factor)
-                        end = format_ass_time(word.end * speed_factor)
-                        raw_w = word.word.strip()
-                        if enable_emojis: raw_w = attach_smart_emoji(raw_w)
-                        text = clean_to_roman_text(raw_w) if convert_to_roman else raw_w
-                        if all_uppercase: text = text.upper()
-                        if text: events.append(f"Dialogue: 0,{start},{end},ReelStyle,,0,0,0,,{effect_tag}{text}")
-            elif "2-3 Words" in chosen_layout:
-                for segment in segments:
-                    words = segment.words
-                    chunk_size = 3
-                    for i in range(0, len(words), chunk_size):
-                        chunk = words[i:i + chunk_size]
-                        if not chunk: con
+                elif "3D Deep Shadow" in 
