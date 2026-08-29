@@ -4,8 +4,8 @@ import os
 from faster_whisper import WhisperModel
 
 st.set_page_config(page_title="Pro AI Subtitle Studio", layout="centered")
-st.title("🎬 Pro AI Subtitle & Quality Studio")
-st.caption("Custom Styles • Alex Hormozi Bounce • Optional Video Enhancer")
+st.title("🎬 Pro AI Subtitle & Enhancer Studio")
+st.caption("Alex Hormozi Style • Pop Bounce • Hinglish Support • Optional 4K Sharpness")
 
 @st.cache_resource
 def load_model():
@@ -24,15 +24,15 @@ def format_ass_time(seconds):
 uploaded_file = st.file_uploader("📁 Upload Reel / Video (MP4/MOV)", type=["mp4", "mov"])
 
 # 2. Subtitle Styling Options
-st.subheader("🎨 Subtitle Styling & Effects")
+st.subheader("🎨 Subtitle Styles & Animation")
 col1, col2 = st.columns(2)
 with col1:
     preset_style = st.selectbox(
-        "✨ Animation / Style Preset",
+        "✨ Animation Preset",
         ["Alex Hormozi (Bounce + Pop)", "Neon Glow", "3D Bold Shadow", "Classic Minimal"]
     )
     font_family = st.selectbox(
-        "🔤 Font Style",
+        "🔤 Font Family",
         ["Arial Black", "Impact", "Montserrat Black", "Trebuchet MS", "Verdana"]
     )
     words_per_line = st.radio(
@@ -43,41 +43,49 @@ with col1:
 
 with col2:
     highlight_color = st.selectbox(
-        "🎯 Highlight Color",
+        "🎯 Active Highlight Color",
         ["Neon Yellow", "Neon Green", "Cyan Blue", "Hot Pink", "Electric Orange", "Bright Red"]
     )
     font_size = st.slider("📏 Font Size", 40, 130, 80, step=5)
     position = st.selectbox(
-        "📍 Subtitle Position",
+        "📍 Text Position",
         ["Center-Bottom", "Middle Center", "Lower Bottom", "Top Header"]
     )
 
-# 3. Quality Enhancer Option (Aapke man ke mutabiq ON/OFF)
+# 3. Language & Output Mode (Hinglish / Translation Fix)
+st.subheader("🌐 Language & Translation")
+col_lang1, col_lang2 = st.columns(2)
+with col_lang1:
+    sub_mode = st.selectbox(
+        "Subtitle Output Mode",
+        [
+            "English Translation (English Words)",
+            "Hinglish / Roman Hindi (Audio as English Letters)",
+            "Original Audio"
+        ]
+    )
+with col_lang2:
+    all_uppercase = st.checkbox("🔠 All CAPS (Uppercase)", value=True)
+
+# 4. Optional Quality Enhancer
 st.subheader("✨ Video Quality Settings")
 enable_enhancer = st.checkbox("Enable Video Quality & Sharpness Boost (Optional)", value=False)
 
-sharpness_level = "High"
+sharpness_level = "High Sharpness"
 if enable_enhancer:
     sharpness_level = st.select_slider(
-        "Quality Boost Level",
+        "Sharpness & Clarity Level",
         options=["Subtle Clear", "High Sharpness", "Ultra 4K Feel"],
         value="High Sharpness"
     )
 
-# Advanced Toggles
-col3, col4 = st.columns(2)
-with col3:
-    auto_translate = st.checkbox("🌐 Auto-Translate to English", value=True)
-with col4:
-    all_uppercase = st.checkbox("🔠 All CAPS", value=True)
-
-# 4. Processing & Rendering
+# 5. Processing & Rendering Logic
 if st.button("Generate Subtitles ⚡", type="primary") and uploaded_file is not None:
-    with st.spinner("Processing AI Audio Transcription & Rendering Video..."):
+    with st.spinner("Processing Audio Transcription & Styling Video..."):
         with open("temp_input.mp4", "wb") as f:
             f.write(uploaded_file.read())
 
-        # Color mapping (BGR format)
+        # ASS BGR Colors
         color_map = {
             "Neon Yellow": "&H0000FFFF&",
             "Neon Green": "&H0000FF00&",
@@ -96,7 +104,7 @@ if st.button("Generate Subtitles ⚡", type="primary") and uploaded_file is not 
         }
         margin_v = pos_map.get(position, 450)
 
-        # Style logic
+        # Style tag mapping
         outline_size = 8
         shadow_size = 4
         if preset_style == "Alex Hormozi (Bounce + Pop)":
@@ -112,11 +120,33 @@ if st.button("Generate Subtitles ⚡", type="primary") and uploaded_file is not 
             outline_size = 5
             shadow_size = 2
 
-        # Transcription
-        transcribe_task = "translate" if auto_translate else "transcribe"
-        segments, _ = model.transcribe("temp_input.mp4", word_timestamps=True, task=transcribe_task)
+        # Language transcription configuration
+        if sub_mode == "English Translation (English Words)":
+            prompt_text = "Translate audio accurately into clear English words."
+            segments, _ = model.transcribe(
+                "temp_input.mp4",
+                word_timestamps=True,
+                task="translate",
+                initial_prompt=prompt_text
+            )
+        elif sub_mode == "Hinglish / Roman Hindi (Audio as English Letters)":
+            # Force Whisper to use Latin / Roman script for Hindi words
+            prompt_text = "Transcribe the Hindi and Urdu speech strictly using English Roman alphabet like: kya hal hai, kaise ho, video, subscribe, follow."
+            segments, _ = model.transcribe(
+                "temp_input.mp4",
+                word_timestamps=True,
+                language="en",
+                initial_prompt=prompt_text
+            )
+        else:
+            prompt_text = "Transcribe clearly without Arabic or Urdu script."
+            segments, _ = model.transcribe(
+                "temp_input.mp4",
+                word_timestamps=True,
+                initial_prompt=prompt_text
+            )
 
-        # Create ASS subtitle file
+        # Header generation
         ass_header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
@@ -166,17 +196,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         with open("subtitles.ass", "w", encoding="utf-8") as f:
             f.write(ass_header + "\n".join(events))
 
-        # Dynamic Video Filter (Quality check)
+        # Check quality enhancer toggle
         if enable_enhancer:
             if sharpness_level == "Subtle Clear":
                 enhance_filter = "unsharp=5:5:0.8:5:5:0.0,eq=contrast=1.05:saturation=1.1"
             elif sharpness_level == "High Sharpness":
                 enhance_filter = "unsharp=7:7:1.4:7:7:0.0,eq=contrast=1.1:saturation=1.15"
-            else:  # Ultra 4K Feel
+            else:
                 enhance_filter = "unsharp=9:9:1.8:9:9:0.0,eq=contrast=1.15:saturation=1.22:brightness=0.01"
             vf_command = f'ass=subtitles.ass,{enhance_filter}'
         else:
-            # Normal without quality processing
             vf_command = 'ass=subtitles.ass'
 
         cmd = f'ffmpeg -y -i temp_input.mp4 -vf "{vf_command}" -c:v libx264 -pix_fmt yuv420p -preset ultrafast -c:a aac output.mp4'
@@ -185,5 +214,5 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         st.success("🎉 Video Ready!")
         st.video("output.mp4")
         with open("output.mp4", "rb") as file:
-            st.download_button("📥 Download Reel", data=file, file_name="styled_reel.mp4", mime="video/mp4")
-                    
+            st.download_button("📥 Download Styled Reel", data=file, file_name="styled_reel.mp4", mime="video/mp4")
+            
