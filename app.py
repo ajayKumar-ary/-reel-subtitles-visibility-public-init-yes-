@@ -84,12 +84,7 @@ DB_FILE = "users_studio.db"
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            email TEXT PRIMARY KEY,
-            password TEXT NOT NULL
-        )
-    """)
+    c.execute("CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, password TEXT NOT NULL)")
     conn.commit()
     conn.close()
 
@@ -130,19 +125,8 @@ def send_otp(target, code):
         msg["From"] = "CaptionVFX AI Studio <" + SMTP_SENDER_EMAIL + ">"
         msg["To"] = target
         msg["Subject"] = "Your Verification OTP: " + str(code) + " - CaptionVFX Studio"
-        body = """
-        <html>
-        <body style="font-family: Arial, sans-serif; background-color: #0f172a; color: #ffffff; padding: 20px; border-radius: 10px;">
-            <h2 style="color: #818cf8;">CaptionVFX AI Studio</h2>
-            <p>Aapka verification OTP code neeche diya gaya hai:</p>
-            <div style="background: #1e293b; padding: 15px; border-radius: 8px; font-size: 28px; font-weight: bold; letter-spacing: 5px; color: #38bdf8; text-align: center; margin: 20px 0;">
-                """ + str(code) + """
-            </div>
-            <p style="color: #94a3b8; font-size: 13px;">Yeh code 10 minute tak valid hai.</p>
-        </body>
-        </html>
-        """
-        msg.attach(MIMEText(body, "html"))
+        body = "Your CaptionVFX OTP code is: " + str(code) + "\n\nValid for 10 minutes."
+        msg.attach(MIMEText(body, "plain"))
         server = smtplib.SMTP("smtp.gmail.com", 587)
         server.starttls()
         server.login(SMTP_SENDER_EMAIL, SMTP_SENDER_PASSWORD)
@@ -194,9 +178,9 @@ if not st.session_state["logged_in"]:
                     if send_otp(r_email.strip().lower(), gen_code):
                         st.session_state["otp_code"] = gen_code
                         st.session_state["otp_target"] = r_email.strip().lower()
-                        st.success("OTP successfully sent! Apni email check karein.")
+                        st.success("OTP sent! Apni email check karein.")
                     else:
-                        st.error("Email send nahi ho paya. Email address dobara check karein.")
+                        st.error("Email send nahi ho paya. Email address check karein.")
                 else:
                     st.warning("Valid email address daalein.")
 
@@ -207,7 +191,7 @@ if not st.session_state["logged_in"]:
                 if st.button("✅ Verify OTP & Register", use_container_width=True):
                     if user_otp.strip() == st.session_state["otp_code"]:
                         if register_user(st.session_state["otp_target"], r_pass):
-                            st.success("Account ban gaya! Ab Sign In tab me jakar login karein.")
+                            st.success("Account ban gaya! Ab Sign In tab se login karein.")
                             st.session_state["otp_code"] = None
                         else:
                             st.warning("Yeh email pehle se registered hai.")
@@ -303,7 +287,7 @@ def attach_emoji(word):
     }
     return word + emojis.get(clean_w, "")
 
-# ==================== 4. SIDEBAR CONTROLS (ALL OPTIONS) ====================
+# ==================== 4. SIDEBAR CONTROLS ====================
 st.sidebar.markdown("📧 **User:** `" + st.session_state['user_email'] + "`")
 if st.sidebar.button("🚪 Logout"):
     st.session_state["logged_in"] = False
@@ -313,16 +297,16 @@ if st.sidebar.button("🚪 Logout"):
 st.sidebar.markdown("---")
 st.sidebar.markdown("## ⚙️ Studio Controls")
 
-# Option 1: Speed Engine
+# Speed Engine
 with st.sidebar.expander("⚡ Processing Speed Mode", expanded=True):
     perf_mode = st.radio("Speed Engine", ["🚀 Turbo Fast (5x Speed)", "🎯 Ultra Precision"])
 
-# Option 2: AI Genre Motion & Emojis
+# AI Genre Motion & Emojis
 with st.sidebar.expander("🤖 AI Motion & Emojis", expanded=True):
     auto_vibe = st.checkbox("AI Auto-Match Reel Type (Vlog/Intro/Podcast)", value=True)
     enable_emojis = st.checkbox("😍 Auto-Add Smart Emojis", value=True)
 
-# Option 3: VFX Presets & Custom Typography
+# Subtitle Styling
 with st.sidebar.expander("🎨 Subtitle Styling & Presets", expanded=False):
     preset_style = st.selectbox(
         "Animation Preset",
@@ -333,14 +317,14 @@ with st.sidebar.expander("🎨 Subtitle Styling & Presets", expanded=False):
     font_size = st.slider("Font Size", 40, 130, 80, step=5)
     position = st.selectbox("Text Position", ["Center-Bottom", "Middle Center", "Lower Bottom", "Top Header"])
 
-# Option 4: Contrast Colors
+# Colors
 with st.sidebar.expander("🎯 Color Settings", expanded=False):
     highlight_color_choice = st.selectbox(
         "Highlight Color",
         ["🤖 Auto-Detect (Video AI Contrast)", "Neon Yellow", "Neon Green", "Cyan Blue", "Hot Pink", "Electric Orange", "Bright Red"]
     )
 
-# Option 5: Language Engine
+# Language
 with st.sidebar.expander("🌐 Language & Translation", expanded=False):
     language_choice = st.selectbox(
         "Audio Language",
@@ -349,7 +333,7 @@ with st.sidebar.expander("🌐 Language & Translation", expanded=False):
     translate_to_en = st.checkbox("🔄 Translate to English Words", value=False)
     all_uppercase = st.checkbox("🔠 Convert All to UPPERCASE", value=True)
 
-# Option 6: Slow-Mo & 4K Clarity
+# Slow-Mo & Clarity
 with st.sidebar.expander("⏱️ Slow-Mo & 4K Clarity", expanded=False):
     enable_slowmo = st.checkbox("Enable Slow Motion", value=False)
     speed_rate = "0.5x"
@@ -388,7 +372,6 @@ if uploaded_file:
             with open("temp_input.mp4", "wb") as f:
                 f.write(uploaded_file.read())
 
-            # Fast audio extraction
             subprocess.run(
                 "ffmpeg -y -i temp_input.mp4 -vn -acodec pcm_s16le -ar 16000 -ac 1 temp_audio.wav",
                 shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
@@ -396,7 +379,6 @@ if uploaded_file:
 
             active_whisper = tiny_model if "Turbo Fast" in perf_mode else base_model
 
-            # Color Selection
             color_map = {
                 "Neon Yellow": "&H0000FFFF&", "Neon Green": "&H0000FF00&",
                 "Cyan Blue": "&H00FFFF00&", "Hot Pink": "&H00D900FF&",
@@ -429,7 +411,6 @@ if uploaded_file:
             segments = list(segs_gen)
             full_text = " ".join([s.text for s in segments])
 
-            # AI Genre vs Manual Style
             if auto_vibe:
                 vibe = classify_reel_vibe(full_text)
                 st.success("🎯 AI Detected Genre: **" + vibe["name"] + "**")
@@ -467,11 +448,27 @@ if uploaded_file:
                 elif "0.5x" in speed_rate: speed_factor = 2.0
                 elif "0.25x" in speed_rate: speed_factor = 4.0
 
-            ass_header = """[Script Info]
-ScriptType: v4.00+
-PlayResX: 1080
-PlayResY: 1920
+            # Safe Subtitle Header Formatting
+            ass_header = (
+                "[Script Info]\n"
+                "ScriptType: v4.00+\n"
+                "PlayResX: 1080\n"
+                "PlayResY: 1920\n\n"
+                "[V4+ Styles]\n"
+                "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
+                f"Style: ReelStyle,{chosen_font},{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,2,0,1,{outline_size},{shadow_size},2,20,20,{margin_v},1\n\n"
+                "[Events]\n"
+                "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+            )
 
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: ReelStyle,""" + str(chosen_font) + """,""" + str(font_size) + """,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,2,0,1,""" + str(outline_size) + 
+            events = []
+            if "1 Word" in chosen_layout:
+                for s in segments:
+                    for w in s.words:
+                        st_time = format_ass_time(w.start * speed_factor)
+                        en_time = format_ass_time(w.end * speed_factor)
+                        raw_w = w.word.strip()
+                        if enable_emojis: raw_w = attach_emoji(raw_w)
+                        txt = clean_to_roman(raw_w) if convert_to_roman else raw_w
+                        if all_uppercase: txt = txt.upper()
+                  
