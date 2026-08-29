@@ -447,5 +447,5 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             st.success("⚡ Video Rendered at Lightning Speed!")
             st.video("output.mp4")
             with open("output.mp4", "rb") as file:
-                 
-    
+                st.download_button("📥 Download Final Reel", data=file, file_name="caption_vfx_reel.mp4", mime="video/mp4", use_container_width=True)
+                        
