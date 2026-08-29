@@ -1,12 +1,11 @@
 import streamlit as st
 import subprocess
 import os
-import re
 from faster_whisper import WhisperModel
 
-st.set_page_config(page_title="Pro AI Reel Subtitle Studio", layout="centered")
-st.title("🎬 Pro AI Subtitle Generator")
-st.caption("Alex Hormozi Style • Pop Bounce • Neon Glow • Custom Fonts")
+st.set_page_config(page_title="Pro AI Subtitle Studio", layout="centered")
+st.title("🎬 Pro AI Subtitle & Quality Studio")
+st.caption("Custom Styles • Alex Hormozi Bounce • Optional Video Enhancer")
 
 @st.cache_resource
 def load_model():
@@ -24,9 +23,8 @@ def format_ass_time(seconds):
 # 1. Video Upload
 uploaded_file = st.file_uploader("📁 Upload Reel / Video (MP4/MOV)", type=["mp4", "mov"])
 
-# 2. Controls & Options Layout
+# 2. Subtitle Styling Options
 st.subheader("🎨 Subtitle Styling & Effects")
-
 col1, col2 = st.columns(2)
 with col1:
     preset_style = st.selectbox(
@@ -54,20 +52,32 @@ with col2:
         ["Center-Bottom", "Middle Center", "Lower Bottom", "Top Header"]
     )
 
+# 3. Quality Enhancer Option (Aapke man ke mutabiq ON/OFF)
+st.subheader("✨ Video Quality Settings")
+enable_enhancer = st.checkbox("Enable Video Quality & Sharpness Boost (Optional)", value=False)
+
+sharpness_level = "High"
+if enable_enhancer:
+    sharpness_level = st.select_slider(
+        "Quality Boost Level",
+        options=["Subtle Clear", "High Sharpness", "Ultra 4K Feel"],
+        value="High Sharpness"
+    )
+
 # Advanced Toggles
 col3, col4 = st.columns(2)
 with col3:
     auto_translate = st.checkbox("🌐 Auto-Translate to English", value=True)
 with col4:
-    all_uppercase = st.checkbox("🔠 All CAPS (Recommended)", value=True)
+    all_uppercase = st.checkbox("🔠 All CAPS", value=True)
 
-# 3. Generate Button & Logic
+# 4. Processing & Rendering
 if st.button("Generate Subtitles ⚡", type="primary") and uploaded_file is not None:
-    with st.spinner("Processing AI Audio Transcription & Adding Effects..."):
+    with st.spinner("Processing AI Audio Transcription & Rendering Video..."):
         with open("temp_input.mp4", "wb") as f:
             f.write(uploaded_file.read())
 
-        # Color mapping (BGR format for ASS)
+        # Color mapping (BGR format)
         color_map = {
             "Neon Yellow": "&H0000FFFF&",
             "Neon Green": "&H0000FF00&",
@@ -78,7 +88,6 @@ if st.button("Generate Subtitles ⚡", type="primary") and uploaded_file is not 
         }
         active_color = color_map.get(highlight_color, "&H0000FFFF&")
 
-        # Position mapping (Vertical margin)
         pos_map = {
             "Center-Bottom": 450,
             "Middle Center": 900,
@@ -87,7 +96,7 @@ if st.button("Generate Subtitles ⚡", type="primary") and uploaded_file is not 
         }
         margin_v = pos_map.get(position, 450)
 
-        # Style preset settings
+        # Style logic
         outline_size = 8
         shadow_size = 4
         if preset_style == "Alex Hormozi (Bounce + Pop)":
@@ -98,16 +107,16 @@ if st.button("Generate Subtitles ⚡", type="primary") and uploaded_file is not 
         elif preset_style == "3D Bold Shadow":
             effect_tag = f"{{\\c{active_color}\\shad8\\4c&H00000000&}}"
             outline_size = 10
-        else: # Classic Minimal
+        else:
             effect_tag = f"{{\\c{active_color}}}"
             outline_size = 5
             shadow_size = 2
 
-        # Transcribe with faster-whisper
+        # Transcription
         transcribe_task = "translate" if auto_translate else "transcribe"
         segments, _ = model.transcribe("temp_input.mp4", word_timestamps=True, task=transcribe_task)
 
-        # Build ASS file header
+        # Create ASS subtitle file
         ass_header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
@@ -121,7 +130,6 @@ Style: ReelStyle,{font_family},{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H80
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
         events = []
-
         if words_per_line == "1 Word (Fast Reels)":
             for segment in segments:
                 for word in segment.words:
@@ -131,7 +139,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     if all_uppercase:
                         text = text.upper()
                     events.append(f"Dialogue: 0,{start},{end},ReelStyle,,0,0,0,,{effect_tag}{text}")
-
         elif words_per_line == "2-3 Words (Natural)":
             for segment in segments:
                 words = segment.words
@@ -159,12 +166,23 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         with open("subtitles.ass", "w", encoding="utf-8") as f:
             f.write(ass_header + "\n".join(events))
 
-        # FFmpeg Burn Subtitles
-        cmd = 'ffmpeg -y -i temp_input.mp4 -vf "ass=subtitles.ass" -c:v libx264 -pix_fmt yuv420p -preset ultrafast -c:a aac output.mp4'
+        # Dynamic Video Filter (Quality check)
+        if enable_enhancer:
+            if sharpness_level == "Subtle Clear":
+                enhance_filter = "unsharp=5:5:0.8:5:5:0.0,eq=contrast=1.05:saturation=1.1"
+            elif sharpness_level == "High Sharpness":
+                enhance_filter = "unsharp=7:7:1.4:7:7:0.0,eq=contrast=1.1:saturation=1.15"
+            else:  # Ultra 4K Feel
+                enhance_filter = "unsharp=9:9:1.8:9:9:0.0,eq=contrast=1.15:saturation=1.22:brightness=0.01"
+            vf_command = f'ass=subtitles.ass,{enhance_filter}'
+        else:
+            # Normal without quality processing
+            vf_command = 'ass=subtitles.ass'
+
+        cmd = f'ffmpeg -y -i temp_input.mp4 -vf "{vf_command}" -c:v libx264 -pix_fmt yuv420p -preset ultrafast -c:a aac output.mp4'
         subprocess.run(cmd, shell=True)
 
-        st.success("🎉 Video Ready with Effects!")
+        st.success("🎉 Video Ready!")
         st.video("output.mp4")
         with open("output.mp4", "rb") as file:
             st.download_button("📥 Download Reel", data=file, file_name="styled_reel.mp4", mime="video/mp4")
-            
