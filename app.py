@@ -1,4 +1,3 @@
-enable_emojis = st.sidebar.checkbox("😍 Auto-Add Smart Emojis to Captions", value=True)
 import streamlit as st
 import subprocess
 import os
