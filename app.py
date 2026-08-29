@@ -2,12 +2,15 @@ import streamlit as st
 import subprocess
 import os
 import re
+import cv2
+import numpy as np
 from faster_whisper import WhisperModel
 from indic_transliteration import sanscript
 from indic_transliteration.sanscript import transliterate
 
-st.set_page_config(page_title="AI Subtitle Studio", layout="centered")
-st.title("🎬 AI Subtitle Studio (100% English Script)")
+st.set_page_config(page_title="AI Subtitle & Enhancer Studio", layout="centered")
+st.title("🎬 AI Subtitle Studio Pro")
+st.caption("Auto Video Color Matching • Pure Hinglish • Alex Hormozi Effects • 4K Enhancer")
 
 @st.cache_resource
 def load_model():
@@ -23,25 +26,53 @@ def format_ass_time(seconds):
     return f"{hours:d}:{minutes:02d}:{secs:02d}.{centisecs:02d}"
 
 def clean_to_roman_text(text):
-    # Agar text me Devanagari Hindi hai, toh use Roman English me convert karega
     has_devanagari = re.search(r'[\u0900-\u097F]', text)
     if has_devanagari:
         text = transliterate(text, sanscript.DEVANAGARI, sanscript.ITRANS)
-    
-    # Arabic/Urdu characters ko remove karke clean English rakhna
     text = re.sub(r'[\u0600-\u06FF\u0750-\u077F]', '', text)
     return text.strip()
+
+def detect_best_contrast_color(video_path):
+    cap = cv2.VideoCapture(video_path)
+    success, frame = cap.read()
+    cap.release()
+    
+    if not success or frame is None:
+        return "&H0000FFFF&"  # Default Neon Yellow
+
+    # Video ke bottom/subtitle zone ko scan karna
+    h, w, _ = frame.shape
+    bottom_crop = frame[int(h * 0.65):h, 0:w]
+    
+    avg_b = float(np.mean(bottom_crop[:, :, 0]))
+    avg_g = float(np.mean(bottom_crop[:, :, 1]))
+    avg_r = float(np.mean(bottom_crop[:, :, 2]))
+    brightness = 0.299 * avg_r + 0.587 * avg_g + 0.114 * avg_b
+
+    # Contrast color logic
+    if brightness > 150:
+        return "&H00FF5500&"  # Deep Vibrant Cyan Blue
+    elif avg_g > avg_r and avg_g > avg_b:
+        return "&H00D900FF&"  # Hot Pink
+    elif avg_r > avg_g and avg_r > avg_b:
+        return "&H0000FF00&"  # Neon Green
+    else:
+        return "&H0000FFFF&"  # Neon Yellow
 
 # 1. Video Upload
 uploaded_file = st.file_uploader("📁 Upload Reel / Video (MP4/MOV)", type=["mp4", "mov"])
 
-# 2. Options
-st.subheader("🎨 Subtitle Controls")
+# 2. Controls & Styling
+st.subheader("🎨 Subtitle Styles & Animation")
 col1, col2 = st.columns(2)
 with col1:
     preset_style = st.selectbox(
         "✨ Animation Preset",
         ["Alex Hormozi (Bounce + Pop)", "Neon Glow", "3D Bold Shadow", "Classic Minimal"]
+    )
+    font_family = st.selectbox(
+        "🔤 Font Family",
+        ["Arial Black", "Impact", "Montserrat Black", "Trebuchet MS", "Verdana"]
     )
     words_per_line = st.radio(
         "📝 Words per Screen",
@@ -50,26 +81,53 @@ with col1:
     )
 
 with col2:
-    highlight_color = st.selectbox(
-        "🎯 Highlight Color",
-        ["Neon Yellow", "Neon Green", "Cyan Blue", "Hot Pink", "Electric Orange", "Bright Red"]
+    highlight_color_choice = st.selectbox(
+        "🎯 Active Highlight Color",
+        [
+            "🤖 Auto-Detect Best Color (Video AI Match)",
+            "Neon Yellow",
+            "Neon Green",
+            "Cyan Blue",
+            "Hot Pink",
+            "Electric Orange",
+            "Bright Red"
+        ]
     )
     font_size = st.slider("📏 Font Size", 40, 130, 80, step=5)
+    position = st.selectbox(
+        "📍 Text Position",
+        ["Center-Bottom", "Middle Center", "Lower Bottom", "Top Header"]
+    )
 
-# Mode Selector
-sub_mode = st.radio(
-    "🌐 Subtitle Style Mode",
-    [
-        "Pure Hinglish / Roman Script (Jo bol rahe hain wahi English letters me)",
-        "English Meaning Translation (Pure English Translation)"
-    ]
-)
+# 3. Language Mode
+st.subheader("🌐 Language & Script Mode")
+col_lang1, col_lang2 = st.columns(2)
+with col_lang1:
+    sub_mode = st.selectbox(
+        "Select Language Mode",
+        [
+            "Pure Hinglish / Roman Hindi (Jaise bol rahe hain waisa text)",
+            "English Meaning Translation (Meaning in English)",
+            "Original Hindi (Devanagari)"
+        ]
+    )
+with col_lang2:
+    all_uppercase = st.checkbox("🔠 All CAPS (Uppercase)", value=True)
 
-# Optional Enhancer
-enable_enhancer = st.checkbox("✨ Enhance Video Quality & Sharpness Boost", value=False)
+# 4. Optional Quality Enhancer Switch
+st.subheader("✨ Video Quality Settings")
+enable_enhancer = st.checkbox("Enable Video Quality & Sharpness Boost (Optional)", value=False)
+sharpness_level = "High Sharpness"
+if enable_enhancer:
+    sharpness_level = st.select_slider(
+        "Sharpness & Clarity Level",
+        options=["Subtle Clear", "High Sharpness", "Ultra 4K Feel"],
+        value="High Sharpness"
+    )
 
+# 5. Process & Generate
 if st.button("Generate Subtitles ⚡", type="primary") and uploaded_file is not None:
-    with st.spinner("Processing Audio Transcription..."):
+    with st.spinner("Processing AI Transcription & Auto-Color Matching..."):
         with open("temp_input.mp4", "wb") as f:
             f.write(uploaded_file.read())
 
@@ -81,7 +139,20 @@ if st.button("Generate Subtitles ⚡", type="primary") and uploaded_file is not 
             "Electric Orange": "&H000088FF&",
             "Bright Red": "&H000000FF&"
         }
-        active_color = color_map.get(highlight_color, "&H0000FFFF&")
+
+        # Auto Color Matching execution
+        if highlight_color_choice == "🤖 Auto-Detect Best Color (Video AI Match)":
+            active_color = detect_best_contrast_color("temp_input.mp4")
+        else:
+            active_color = color_map.get(highlight_color_choice, "&H0000FFFF&")
+
+        pos_map = {
+            "Center-Bottom": 450,
+            "Middle Center": 900,
+            "Lower Bottom": 220,
+            "Top Header": 1600
+        }
+        margin_v = pos_map.get(position, 450)
 
         outline_size = 8
         shadow_size = 4
@@ -100,7 +171,6 @@ if st.button("Generate Subtitles ⚡", type="primary") and uploaded_file is not 
 
         # Forced Hindi detection + Transliteration logic
         if "Pure Hinglish" in sub_mode:
-            # language='hi' lock karne se Urdu detection 0% ho jayegi
             segments, _ = model.transcribe(
                 "temp_input.mp4",
                 word_timestamps=True,
@@ -108,11 +178,18 @@ if st.button("Generate Subtitles ⚡", type="primary") and uploaded_file is not 
                 initial_prompt="यह हिंदी भाषा में है।"
             )
             convert_to_roman = True
-        else:
+        elif "English Meaning Translation" in sub_mode:
             segments, _ = model.transcribe(
                 "temp_input.mp4",
                 word_timestamps=True,
                 task="translate"
+            )
+            convert_to_roman = False
+        else:
+            segments, _ = model.transcribe(
+                "temp_input.mp4",
+                word_timestamps=True,
+                language="hi"
             )
             convert_to_roman = False
 
@@ -123,7 +200,7 @@ PlayResY: 1920
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: ReelStyle,Arial Black,{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,2,0,1,{outline_size},{shadow_size},2,20,20,450,1
+Style: ReelStyle,{font_family},{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,2,0,1,{outline_size},{shadow_size},2,20,20,{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -137,7 +214,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     text = word.word.strip()
                     if convert_to_roman:
                         text = clean_to_roman_text(text)
-                    text = text.upper()
+                    if all_uppercase:
+                        text = text.upper()
                     if text:
                         events.append(f"Dialogue: 0,{start},{end},ReelStyle,,0,0,0,,{effect_tag}{text}")
         elif words_per_line == "2-3 Words (Natural)":
@@ -157,7 +235,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                             wt = clean_to_roman_text(wt)
                         if wt:
                             text_parts.append(wt)
-                    text = " ".join(text_parts).upper()
+                    text = " ".join(text_parts)
+                    if all_uppercase:
+                        text = text.upper()
                     if text:
                         events.append(f"Dialogue: 0,{start},{end},ReelStyle,,0,0,0,,{effect_tag}{text}")
         else:
@@ -167,7 +247,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 text = segment.text.strip()
                 if convert_to_roman:
                     text = clean_to_roman_text(text)
-                text = text.upper()
+                if all_uppercase:
+                    text = text.upper()
                 if text:
                     events.append(f"Dialogue: 0,{start},{end},ReelStyle,,0,0,0,,{effect_tag}{text}")
 
@@ -175,7 +256,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             f.write(ass_header + "\n".join(events))
 
         if enable_enhancer:
-            vf_command = 'ass=subtitles.ass,unsharp=7:7:1.4:7:7:0.0,eq=contrast=1.1:saturation=1.15'
+            if sharpness_level == "Subtle Clear":
+                enhance_filter = "unsharp=5:5:0.8:5:5:0.0,eq=contrast=1.05:saturation=1.1"
+            elif sharpness_level == "High Sharpness":
+                enhance_filter = "unsharp=7:7:1.4:7:7:0.0,eq=contrast=1.1:saturation=1.15"
+            else:
+                enhance_filter = "unsharp=9:9:1.8:9:9:0.0,eq=contrast=1.15:saturation=1.22:brightness=0.01"
+            vf_command = f'ass=subtitles.ass,{enhance_filter}'
         else:
             vf_command = 'ass=subtitles.ass'
 
@@ -186,59 +273,4 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         st.video("output.mp4")
         with open("output.mp4", "rb") as file:
             st.download_button("📥 Download Styled Reel", data=file, file_name="styled_reel.mp4", mime="video/mp4")
-                import cv2
-import numpy as np
-
-def detect_best_contrast_color(video_path):
-    cap = cv2.VideoCapture(video_path)
-    success, frame = cap.read()
-    cap.release()
-    
-    if not success or frame is None:
-        return "&H0000FFFF&" # Default Neon Yellow
-
-    # Subtitle zone (Bottom 30% area of video) crop karein
-    h, w, _ = frame.shape
-    bottom_crop = frame[int(h*0.7):h, 0:w]
-    
-    # Average Brightness & Color Dominance (BGR)
-    avg_b = np.mean(bottom_crop[:, :, 0])
-    avg_g = np.mean(bottom_crop[:, :, 1])
-    avg_r = np.mean(bottom_crop[:, :, 2])
-    brightness = 0.299 * avg_r + 0.587 * avg_g + 0.114 * avg_b
-
-    # 1. Agar background bahut light/white hai -> Cyan Blue ya Vibrant Red
-    if brightness > 150:
-        return "&H00FF5500&" # Deep Electric Cyan/Blue
-    
-    # 2. Agar background me Green/Nature zyada hai -> Bright Hot Pink / Red
-    elif avg_g > avg_r and avg_g > avg_b:
-        return "&H00D900FF&" # Hot Pink
-    
-    # 3. Agar background me Red/Warm lighting zyada hai -> Neon Green
-    elif avg_r > avg_g and avg_r > avg_b:
-        return "&H0000FF00&" # Neon Green
-    
-    # 4. Agar background Dark hai -> Neon Yellow (Highest visibility)
-    else:
-        return "&H0000FFFF&" # Neon Yellow
-    
-highlight_choice = st.selectbox(
-    "🎯 Highlight Color",
-    [
-        "🤖 Auto-Detect Best Color (AI Adaptive)",
-        "Neon Yellow",
-        "Neon Green",
-        "Cyan Blue",
-        "Hot Pink",
-        "Electric Orange",
-        "Bright Red"
-    ]
-)
-
-# Color Logic
-if highlight_choice == "🤖 Auto-Detect Best Color (AI Adaptive)":
-    active_color = detect_best_contrast_color("temp_input.mp4")
-else:
-    active_color = color_map.get(highlight_choice, "&H0000FFFF&")
-    
+            
