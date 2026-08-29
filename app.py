@@ -1,4 +1,4 @@
-import streamlit as st
+                import streamlit as st
 import subprocess
 import os
 import re
@@ -271,13 +271,13 @@ def detect_best_contrast_color(video_path):
     brightness = 0.299 * avg_r + 0.587 * avg_g + 0.114 * avg_b
 
     if brightness > 150:
-        return "&H00FF5500&"  # Cyan Blue
+        return "&H00FF5500&"
     elif avg_g > avg_r and avg_g > avg_b:
-        return "&H00D900FF&"  # Hot Pink
+        return "&H00D900FF&"
     elif avg_r > avg_g and avg_r > avg_b:
-        return "&H0000FF00&"  # Neon Green
+        return "&H0000FF00&"
     else:
-        return "&H0000FFFF&"  # Neon Yellow
+        return "&H0000FFFF&"
 
 def classify_reel_vibe(transcript_text):
     text_lower = transcript_text.lower()
@@ -459,4 +459,5 @@ if uploaded_file:
                 elif "Neon Cyberpunk" in preset_style:
                     effect_tag = f"{{\\c{active_color}\\blur7\\3c{active_color}\\shad0}}"
                     outline_size = 4
-                elif "3D Deep Shadow" in 
+                elif "3D Deep Shadow" in preset_style:
+                    effect_tag = f"{{\\c
