@@ -44,21 +44,9 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ----------------- HINGLISH TRANSLITERATION ENGINE -----------------
-HINDI_TO_HINGLISH_MAP = {
-    'नमस्कार': 'Namaskar', 'नमस्ते': 'Namaste', 'आप': 'Aap', 'कैसे': 'Kaise', 'हो': 'Ho',
-    'मैं': 'Main', 'हूँ': 'Hoon', 'अच्छा': 'Achha', 'बहुत': 'Bahut', 'धन्यवाद': 'Dhanyawad',
-    'क्या': 'Kya', 'कर': 'Kar', 'रहे': 'Rahe', 'रहा': 'Raha', 'रही': 'Rahi', 'है': 'Hai',
-    'हैं': 'Hain', 'यह': 'Yeh', 'वह': 'Woh', 'कहाँ': 'Kahan', 'यहाँ': 'Yahan', 'वहाँ': 'Wahan',
-    'कब': 'Kab', 'क्यों': 'Kyun', 'नहीं': 'Nahi', 'हाँ': 'Haan', 'दोस्त': 'Dost', 'भाई': 'Bhai',
-    'पैसा': 'Paisa', 'काम': 'Kaam', 'समय': 'Samay', 'वीडियो': 'Video', 'लाइक': 'Like',
-    'शेयर': 'Share', 'सब्सक्राइब': 'Subscribe', 'फॉलो': 'Follow', 'दिन': 'Din', 'रात': 'Raat',
-    'जिंदगी': 'Zindagi', 'सफलता': 'Success', 'मेहनत': 'Mehnat', 'सोचो': 'Socho', 'देखो': 'Dekho'
-}
-
-def hindi_to_hinglish(text: str) -> str:
-    # Character replacement mapping for Devanagari
+def devanagari_to_hinglish(text: str) -> str:
     matras = {
-        'ा': 'a', 'ि': 'i', 'ी': 'ee', 'ु': 'u', 'ू': 'oo', 'ृ': 'ri',
+        'ा': 'aa', 'ि': 'i', 'ी': 'ee', 'ु': 'u', 'ू': 'oo', 'ृ': 'ri',
         'े': 'e', 'ै': 'ai', 'ो': 'o', 'ौ': 'au', 'ं': 'n', '्': '', 'ः': 'h'
     }
     vowels = {
@@ -78,11 +66,6 @@ def hindi_to_hinglish(text: str) -> str:
     words = text.split()
     converted_words = []
     for word in words:
-        clean_w = re.sub(r'[^\w\s]', '', word)
-        if clean_w in HINDI_TO_HINGLISH_MAP:
-            converted_words.append(HINDI_TO_HINGLISH_MAP[clean_w])
-            continue
-
         res = []
         i = 0
         w_len = len(word)
@@ -105,7 +88,8 @@ def hindi_to_hinglish(text: str) -> str:
             else:
                 res.append(c)
             i += 1
-        converted_words.append("".join(res).capitalize())
+        w_res = "".join(res)
+        converted_words.append(w_res.upper() if w_res else word)
     return " ".join(converted_words)
 
 # ----------------- HELPER FUNCTIONS -----------------
@@ -124,15 +108,15 @@ def cleanup_files(files_list):
                 pass
 
 # ----------------- ASS SUBTITLE BUILDER -----------------
-def generate_ass_subtitles(segments, preset_style, font_size, primary_color, position, convert_hinglish):
+def generate_ass_subtitles(segments, preset_style, font_size, primary_color, position, convert_to_hinglish):
     align_val = 2
-    margin_v = 45
+    margin_v = 50
     if position == "Middle":
         align_val = 5
         margin_v = 0
     elif position == "Top":
         align_val = 8
-        margin_v = 45
+        margin_v = 50
 
     colors_map = {
         "Yellow Highlight": "&H0000FFFF",
@@ -165,8 +149,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         if not text:
             continue
         
-        if convert_hinglish:
-            text = hindi_to_hinglish(text)
+        # Devanagari to Hinglish conversion if enabled
+        if convert_to_hinglish and bool(re.search(r'[\u0900-\u097F]', text)):
+            text = devanagari_to_hinglish(text)
+        else:
+            text = text.upper()
         
         words = text.split()
         if len(words) > 3:
@@ -186,7 +173,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 # ----------------- UI WORKSPACE -----------------
 st.title("🎬 CaptionVFX AI Studio Pro")
-st.caption("AI Subtitles • Hinglish Auto-Convert • VFX Animations • 4K Visual Boost")
+st.caption("AI Subtitles • Hinglish Auto-Transcribe • VFX Animations • 4K Visual Boost")
 
 uploaded_file = st.file_uploader("📤 Upload Video (MP4/MOV)", type=["mp4", "mov"])
 
@@ -200,31 +187,37 @@ if uploaded_file:
         st.video("temp_input.mp4")
         st.markdown("""
         <div class="metric-card">
-            🎯 <b>AI Detected Preset:</b> Viral Shorts & Reels<br>
-            ⚡ <b>Audio Engine:</b> Whisper Neural AI
+            🎯 <b>Output Quality:</b> 1080x1920 (Reels & Shorts Ready)<br>
+            ⚡ <b>Subtitle Engine:</b> Whisper Neural Anti-Confusion Mode
         </div>
         """, unsafe_allow_html=True)
 
     with col_settings:
-        st.subheader("⚙️ Style & Animation Controls")
+        st.subheader("⚙️ Style & Subtitle Controls")
         
         c1, c2 = st.columns(2)
         with c1:
-            lang_choice = st.selectbox("🌐 Audio Language", ["Auto Detect", "Hindi (हिन्दी)", "English", "Hinglish Mode"])
+            lang_mode = st.selectbox(
+                "🌐 Subtitle Output Mode",
+                [
+                    "Hinglish / English (Recommended)",
+                    "Pure Hindi (हिन्दी)",
+                    "Pure English"
+                ]
+            )
             preset_style = st.selectbox("✨ Subtitle VFX Style", ["Hormozi Viral Pop", "Neon Glow & Shadow", "Clean Minimalist", "Classic Bold"])
             primary_color = st.selectbox("🎯 Highlight Color", ["Yellow Highlight", "Neon Cyan", "Pure White", "Vibrant Green", "Hot Pink"])
         
         with c2:
             position = st.selectbox("📍 Subtitle Position", ["Bottom", "Middle", "Top"])
             font_size = st.slider("🔤 Font Size", 20, 56, 36)
-            whisper_model = st.selectbox("⚡ AI Processing Speed", ["tiny (Super Fast)", "base (Balanced)", "small (Ultra Accurate)"])
+            whisper_model = st.selectbox("⚡ AI Engine Model", ["base (Recommended)", "small (High Accuracy)", "tiny (Fastest)"])
 
         st.markdown("---")
         st.subheader("🚀 Video Enhancements")
         e1, e2 = st.columns(2)
         with e1:
-            enable_enhancer = st.checkbox("✨ 4K Clarity & Color Boost", value=True)
-            convert_hinglish = st.checkbox("🔤 Convert Hindi to Hinglish (Aap Kaise Ho)", value=True if "Hinglish" in lang_choice else False)
+            enable_enhancer = st.checkbox("✨ 4K Clarity & Color Saturation Boost", value=True)
         with e2:
             slowmo_option = st.selectbox("⏱️ Speed / Slow-Motion", ["Normal Speed (1.0x)", "Smooth Slow-Mo (0.75x)", "Dramatic Slow-Mo (0.5x)"])
 
@@ -233,27 +226,49 @@ if uploaded_file:
         status_text = st.empty()
 
         # 1. Extract Audio
-        status_text.text("🎙️ Extracting Audio...")
+        status_text.text("🎙️ Extracting Clean Audio...")
         progress_bar.progress(20)
         cmd_extract = "ffmpeg -y -i temp_input.mp4 -vn -acodec pcm_s16le -ar 16000 -ac 1 temp_audio.wav"
         subprocess.run(cmd_extract, shell=True, capture_output=True)
 
-        # 2. Whisper AI Transcription
-        status_text.text("🤖 Transcribing Voice with AI...")
+        # 2. Whisper Speech Recognition (Guaranteed Anti-Arabic Mode)
+        status_text.text("🤖 Transcribing Voice with AI Engine...")
         progress_bar.progress(45)
         model_name = whisper_model.split()[0]
         model = whisper.load_model(model_name)
         
-        transcribe_args = {"fp16": False}
-        if "Hindi" in lang_choice or "Hinglish" in lang_choice:
-            transcribe_args["language"] = "hi"
-        elif "English" in lang_choice:
-            transcribe_args["language"] = "en"
-            
-        transcription = model.transcribe("temp_audio.wav", **transcribe_args)
+        # Audio prompt to prevent hallucinating Arabic/Urdu scripts
+        hindi_prompt = "Namaste dosto, yeh ek video hai jisme Hindi aur Hinglish me baat ho rahi hai."
+        
+        if "Hinglish / English" in lang_mode:
+            # Transcribe & Translate automatically to English/Hinglish alphabet
+            transcription = model.transcribe(
+                "temp_audio.wav",
+                task="translate",
+                initial_prompt=hindi_prompt,
+                fp16=False
+            )
+            convert_to_hinglish = True
+        elif "Pure Hindi" in lang_mode:
+            transcription = model.transcribe(
+                "temp_audio.wav",
+                language="hi",
+                task="transcribe",
+                initial_prompt=hindi_prompt,
+                fp16=False
+            )
+            convert_to_hinglish = False
+        else:
+            transcription = model.transcribe(
+                "temp_audio.wav",
+                language="en",
+                task="transcribe",
+                fp16=False
+            )
+            convert_to_hinglish = False
 
-        # 3. Create ASS Subtitles
-        status_text.text("🎨 Styling Subtitle Animations...")
+        # 3. Generate ASS Subtitles
+        status_text.text("🎨 Applying Subtitle VFX Animations...")
         progress_bar.progress(65)
         ass_content = generate_ass_subtitles(
             transcription["segments"],
@@ -261,13 +276,13 @@ if uploaded_file:
             font_size,
             primary_color,
             position,
-            convert_hinglish
+            convert_to_hinglish
         )
         with open("subtitles.ass", "w", encoding="utf-8") as f:
             f.write(ass_content)
 
         # 4. FFmpeg Video Merge
-        status_text.text("⚡ Final Video Rendering with VFX...")
+        status_text.text("⚡ Final Video Rendering...")
         progress_bar.progress(85)
         
         vf_filters = []
@@ -296,7 +311,7 @@ if uploaded_file:
 
         # 5. Output Video Display & Download Button
         if os.path.exists("output.mp4") and os.path.getsize("output.mp4") > 1000:
-            st.success("✅ Reel Successfully Rendered with Effects!")
+            st.success("✅ Subtitled Reel Ready!")
             with open("output.mp4", "rb") as vid_file:
                 video_bytes = vid_file.read()
                 st.video(video_bytes)
@@ -308,8 +323,8 @@ if uploaded_file:
                     use_container_width=True
                 )
         else:
-            st.error("Rendering issue detected. Please check your video format.")
+            st.error("Rendering failed. Please verify video format.")
 
         cleanup_files(["temp_input.mp4", "temp_audio.wav", "subtitles.ass", "output.mp4"])
         gc.collect()
-            
+        
