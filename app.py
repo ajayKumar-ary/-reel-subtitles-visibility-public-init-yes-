@@ -5,6 +5,7 @@ import requests
 import json
 import gc
 import re
+import io
 import imageio_ffmpeg
 import speech_recognition as sr
 from PIL import Image, ImageDraw, ImageFont
@@ -48,6 +49,25 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+# ----------------- HIGH-QUALITY FONT FETCHER -----------------
+@st.cache_resource
+def load_hd_font_bytes():
+    # Fetch clean standard Open-Source Bold Font into memory
+    urls = [
+        "https://cdn.jsdelivr.net/gh/google/fonts/ofl/montserrat/Montserrat-Black.ttf",
+        "https://cdn.jsdelivr.net/gh/google/fonts/apache/roboto/Roboto-Black.ttf"
+    ]
+    for url in urls:
+        try:
+            res = requests.get(url, timeout=6)
+            if res.status_code == 200 and len(res.content) > 10000:
+                return res.content
+        except Exception:
+            continue
+    return None
+
+FONT_BYTES = load_hd_font_bytes()
 
 # ----------------- ACCURATE HINGLISH TRANSLITERATOR -----------------
 def devanagari_to_hinglish(text: str) -> str:
@@ -108,83 +128,72 @@ def devanagari_to_hinglish(text: str) -> str:
 
     return " ".join(output_words)
 
-# ----------------- GUARANTEED LARGE OVERLAY GENERATOR -----------------
-def create_subtitle_overlays(segments, position, color_name, vw, vh, out_dir):
+# ----------------- CLEAN HD CAPCUT/HORMOZI OVERLAY ENGINE -----------------
+def create_subtitle_overlays(segments, position, color_name, style_mode, vw, vh, out_dir):
     color_dict = {
-        "Yellow Highlight": (255, 230, 0),
+        "Hormozi Yellow": (255, 225, 0),
         "Neon Cyan": (0, 245, 255),
         "Pure White": (255, 255, 255),
-        "Vibrant Green": (0, 255, 128),
-        "Hot Pink": (255, 20, 147)
+        "Emerald Green": (0, 255, 128),
+        "Hot Pink": (255, 45, 150)
     }
-    fill_col = color_dict.get(color_name, (255, 230, 0))
+    fill_col = color_dict.get(color_name, (255, 225, 0))
     os.makedirs(out_dir, exist_ok=True)
 
-    overlay_files = []
+    # Calculate optimal font size relative to video width (Around 6-7% of screen width)
+    font_size = max(36, int(vw * 0.068))
     
+    if FONT_BYTES:
+        font = ImageFont.truetype(io.BytesIO(FONT_BYTES), font_size)
+    else:
+        font = ImageFont.load_default()
+
+    overlay_files = []
     for idx, seg in enumerate(segments):
+        img = Image.new("RGBA", (vw, vh), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
         text = seg['text'].strip().upper()
-        
-        # 1. Base High-Res Text Rendering
-        img_temp = Image.new("RGBA", (1000, 300), (0, 0, 0, 0))
-        d_temp = ImageDraw.Draw(img_temp)
-        
-        # Try loading true scalable font or generate scalable vector text
-        font_loaded = False
-        for p in ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "DejaVuSans-Bold.ttf"]:
-            if os.path.exists(p):
-                try:
-                    font = ImageFont.truetype(p, 65)
-                    font_loaded = True
-                    break
-                except:
-                    pass
-        if not font_loaded:
-            font = ImageFont.load_default()
 
-        bbox = d_temp.textbbox((0, 0), text, font=font)
-        raw_w = max(10, bbox[2] - bbox[0])
-        raw_h = max(10, bbox[3] - bbox[1])
-        
-        # Render text on tight canvas
-        pad = 20
-        badge_w = raw_w + (pad * 2)
-        badge_h = raw_h + (pad * 2)
-        
-        badge_img = Image.new("RGBA", (badge_w, badge_h), (0, 0, 0, 0))
-        d_badge = ImageDraw.Draw(badge_img)
-        d_badge.rounded_rectangle([0, 0, badge_w, badge_h], radius=16, fill=(0, 0, 0, 220))
-        d_badge.text((pad - bbox[0], pad - bbox[1]), text, font=font, fill=fill_col, stroke_width=3, stroke_fill=(0, 0, 0, 255))
+        bbox = draw.textbbox((0, 0), text, font=font)
+        text_w = bbox[2] - bbox[0]
+        text_h = bbox[3] - bbox[1]
 
-        # 2. Target 75% Video Width for Viral Reel Readability
-        target_w = int(vw * 0.78)
-        target_h = int(badge_h * (target_w / badge_w))
-        
-        # Rescale text banner to huge proportional size
-        scaled_badge = badge_img.resize((target_w, target_h), Image.Resampling.NEAREST if not font_loaded else Image.Resampling.BICUBIC)
-
-        # 3. Paste on Final Canvas
-        final_overlay = Image.new("RGBA", (vw, vh), (0, 0, 0, 0))
-        paste_x = (vw - target_w) // 2
+        x = (vw - text_w) // 2
         
         if position == "Top":
-            paste_y = int(vh * 0.15)
+            y = int(vh * 0.16)
         elif position == "Middle":
-            paste_y = (vh - target_h) // 2
+            y = (vh - text_h) // 2
         else:
-            paste_y = int(vh * 0.75)
+            y = int(vh * 0.76)  # Perfect aesthetic lower third
 
-        final_overlay.paste(scaled_badge, (paste_x, paste_y), scaled_badge)
-        
+        # Style Options:
+        if "Modern Pill Badge" in style_mode:
+            pad_x = int(vw * 0.035)
+            pad_y = int(vh * 0.012)
+            badge_rect = [x - pad_x, y - pad_y, x + text_w + pad_x, y + text_h + pad_y]
+            draw.rounded_rectangle(badge_rect, radius=int(vh*0.015), fill=(0, 0, 0, 195))
+            draw.text((x, y), text, font=font, fill=fill_col, stroke_width=2, stroke_fill=(0, 0, 0, 255))
+        else:
+            # Hormozi Viral Pop (Ultra clean: Heavy black stroke + Drop Shadow, No background box)
+            stroke_width = max(4, int(font_size * 0.12))
+            
+            # Subtle Drop Shadow
+            shadow_offset = max(3, int(font_size * 0.07))
+            draw.text((x + shadow_offset, y + shadow_offset), text, font=font, fill=(0, 0, 0, 180), stroke_width=stroke_width, stroke_fill=(0, 0, 0, 180))
+            
+            # Main Bold Text with clean black stroke
+            draw.text((x, y), text, font=font, fill=fill_col, stroke_width=stroke_width, stroke_fill=(0, 0, 0, 255))
+
         filename = os.path.join(out_dir, f"sub_{idx}.png")
-        final_overlay.save(filename, "PNG")
+        img.save(filename, "PNG")
         overlay_files.append((filename, seg['start'], seg['end']))
         
     return overlay_files
 
 # ----------------- UI WORKSPACE -----------------
 st.title("🎬 CaptionVFX AI Studio Pro")
-st.caption("Auto-Magnified Large Subtitles • Hinglish Auto-Romanize • 4K Visual Boost")
+st.caption("Aesthetic Viral Subtitles • CapCut & Hormozi Style • 4K Clean Visuals")
 
 uploaded_file = st.file_uploader("📤 Upload Video (MP4/MOV)", type=["mp4", "mov"])
 
@@ -200,7 +209,7 @@ if uploaded_file:
     with open(input_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
 
-    # Get Duration & Video Dimensions
+    # Get Duration & Dimensions
     video_duration = 10.0
     vw, vh = 1080, 1920
     try:
@@ -225,8 +234,8 @@ if uploaded_file:
         st.video(input_path)
         st.markdown(f"""
         <div class="metric-card">
-            ⚡ <b>Canvas:</b> {vw}x{vh} (Exact Aspect Ratio)<br>
-            ⏱️ <b>Duration:</b> {video_duration:.1f}s | Pro Viral Layout
+            ⚡ <b>Canvas:</b> {vw}x{vh} HD<br>
+            ⏱️ <b>Duration:</b> {video_duration:.1f}s | Pro Auto-Sync
         </div>
         """, unsafe_allow_html=True)
 
@@ -243,19 +252,20 @@ if uploaded_file:
                     "English"
                 ]
             )
-            primary_color = st.selectbox("🎯 Highlight Color", ["Yellow Highlight", "Neon Cyan", "Pure White", "Vibrant Green", "Hot Pink"])
+            style_mode = st.selectbox("✨ Typography VFX Style", ["Hormozi Clean Stroke (No Box)", "Modern Pill Badge (Clean Box)"])
+            primary_color = st.selectbox("🎯 Highlight Color", ["Hormozi Yellow", "Neon Cyan", "Pure White", "Emerald Green", "Hot Pink"])
         
         with c2:
             position = st.selectbox("📍 Subtitle Position", ["Bottom", "Middle", "Top"])
 
-        custom_override = st.text_input("✍️ Manual Subtitle Override (Optional)", placeholder="Khaali chhoden agar auto-detect audio chahiye")
+        custom_override = st.text_input("✍️ Manual Subtitle Override (Optional)", placeholder="Khaali chhoden agar auto audio detect chahiye")
 
     if st.button("🚀 Render Subtitled Video", use_container_width=True):
         progress_bar = st.progress(0)
         status_text = st.empty()
 
-        # 1. Audio Extraction
-        status_text.text("🎙️ Extracting Audio Track...")
+        # 1. Clean Audio Track
+        status_text.text("🎙️ Extracting Clean Audio Track...")
         progress_bar.progress(25)
         cmd_extract = f'"{FFMPEG_EXE}" -y -i "{input_path}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "{audio_path}"'
         subprocess.run(cmd_extract, shell=True, capture_output=True)
@@ -275,6 +285,7 @@ if uploaded_file:
             except Exception:
                 recognized_text = ""
 
+        # Divide into punchy 2-word chunks
         segments = []
         if recognized_text:
             words = recognized_text.split()
@@ -300,16 +311,16 @@ if uploaded_file:
         if not segments:
             segments = [
                 {'start': 0.0, 'end': video_duration/2, 'text': 'HELLO DOSTO'},
-                {'start': video_duration/2, 'end': video_duration, 'text': 'VIRAL VIDEO REEL'}
+                {'start': video_duration/2, 'end': video_duration, 'text': 'VIRAL REEL'}
             ]
 
-        # 3. Dynamic Large Overlays
-        status_text.text("🎨 Generating Auto-Scaled Large Captions...")
+        # 3. Clean HD Overlays
+        status_text.text("🎨 Generating Aesthetic HD Captions...")
         progress_bar.progress(70)
-        overlays = create_subtitle_overlays(segments, position, primary_color, vw, vh, overlays_dir)
+        overlays = create_subtitle_overlays(segments, position, primary_color, style_mode, vw, vh, overlays_dir)
 
         # 4. Multi-Overlay Filter Burn
-        status_text.text("⚡ Burning Captions onto Video...")
+        status_text.text("⚡ Merging Crisp Subtitles...")
         progress_bar.progress(85)
         
         input_args = [f'-i "{input_path}"']
@@ -333,7 +344,7 @@ if uploaded_file:
 
         # 5. Output Video Display & Download
         if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
-            st.success("✅ Large Subtitles Burned Successfully!")
+            st.success("✅ Aesthetic Subtitled Reel Ready!")
             with open(output_path, "rb") as vid_file:
                 video_bytes = vid_file.read()
                 st.video(video_bytes)
@@ -348,4 +359,4 @@ if uploaded_file:
             st.error("Render issue. Please try again.")
 
         gc.collect()
-        
+            
