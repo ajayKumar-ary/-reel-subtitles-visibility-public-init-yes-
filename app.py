@@ -84,7 +84,7 @@ def devanagari_to_hinglish(text: str) -> str:
         'च': 'ch', 'छ': 'chh', 'ज': 'j', 'झ': 'jh', 'ञ': 'ny',
         'ट': 't', 'ठ': 'th', 'ड': 'd', 'ढ': 'dh', 'ण': 'n',
         'त': 't', 'थ': 'th', 'द': 'd', 'ध': 'dh', 'न': 'n',
-        'प': 'p', 'फ': 'ph', 'ब': 'b', 'भ': 'bh', 'म': 'm',
+        'प': 'p', 'ph': 'ph', 'ब': 'b', 'भ': 'bh', 'म': 'm',
         'य': 'y', 'र': 'r', 'ल': 'l', 'व': 'v', 'श': 'sh',
         'ष': 'sh', 'स': 's', 'ह': 'h', 'ड़': 'd', 'ढ़': 'dh',
         'ज़': 'z', 'फ़': 'f', 'ग़': 'g', 'ख़': 'kh', 'क़': 'q'
@@ -127,8 +127,8 @@ def devanagari_to_hinglish(text: str) -> str:
 
     return " ".join(output_words)
 
-# ----------------- MASSIVE VIRAL OVERLAY GENERATOR -----------------
-def create_subtitle_overlays(segments, position, color_name, preset_style, font_size_user, vw, vh, out_dir):
+# ----------------- DYNAMIC MASSIVE OVERLAYS -----------------
+def create_subtitle_overlays(segments, position, color_name, preset_style, font_size_user, shadow_mode, stroke_mode, vw, vh, out_dir):
     color_dict = {
         "Yellow Highlight": (255, 230, 0),
         "Neon Cyan": (0, 245, 255),
@@ -139,13 +139,27 @@ def create_subtitle_overlays(segments, position, color_name, preset_style, font_
     fill_col = color_dict.get(color_name, (255, 230, 0))
     os.makedirs(out_dir, exist_ok=True)
 
-    # 3X Scaled Font Size for full-screen readability
-    font_size = max(55, int((vw / 1080.0) * font_size_user * 2.6))
+    # True Large Scaler
+    calculated_font_size = int((vw / 1080.0) * font_size_user * 1.8)
+    font_size = max(50, calculated_font_size)
 
     if FONT_BYTES:
         font = ImageFont.truetype(io.BytesIO(FONT_BYTES), font_size)
     else:
         font = ImageFont.load_default()
+
+    # Stroke setup
+    stroke_mult = {"Thin": 0.05, "Medium": 0.09, "Bold": 0.13, "Ultra Thick": 0.18}
+    stroke_width = max(2, int(font_size * stroke_mult.get(stroke_mode, 0.09)))
+
+    # Shadow opacity & offset
+    shadow_settings = {
+        "Off": (0, 0),
+        "Soft Shadow": (int(font_size * 0.04), 90),
+        "Medium Shadow": (int(font_size * 0.06), 140),
+        "Strong Shadow": (int(font_size * 0.08), 200)
+    }
+    s_offset, s_alpha = shadow_settings.get(shadow_mode, (int(font_size * 0.04), 90))
 
     overlay_files = []
     for idx, seg in enumerate(segments):
@@ -164,29 +178,29 @@ def create_subtitle_overlays(segments, position, color_name, preset_style, font_
         elif position == "Middle":
             y = (vh - text_h) // 2
         else:
-            y = int(vh * 0.74)
+            y = int(vh * 0.76)
 
         if preset_style == "Modern Pill Badge":
             pad_x = int(vw * 0.04)
             pad_y = int(vh * 0.015)
             badge_rect = [x - pad_x, y - pad_y, x + text_w + pad_x, y + text_h + pad_y]
-            draw.rounded_rectangle(badge_rect, radius=int(vh*0.02), fill=(0, 0, 0, 215))
-            draw.text((x, y), text, font=font, fill=fill_col, stroke_width=3, stroke_fill=(0, 0, 0, 255))
+            draw.rounded_rectangle(badge_rect, radius=int(vh*0.018), fill=(0, 0, 0, 180))
+            draw.text((x, y), text, font=font, fill=fill_col, stroke_width=stroke_width, stroke_fill=(0, 0, 0, 255))
         
-        elif preset_style == "Neon Glow & Shadow":
-            glow_col = (fill_col[0], fill_col[1], fill_col[2], 140)
-            for offset in [(5,5), (-5,-5), (5,-5), (-5,5), (0,6), (6,0)]:
-                draw.text((x + offset[0], y + offset[1]), text, font=font, fill=glow_col, stroke_width=10, stroke_fill=(0,0,0,180))
-            draw.text((x, y), text, font=font, fill=(255, 255, 255), stroke_width=5, stroke_fill=(0, 0, 0, 255))
+        elif preset_style == "Neon Glow":
+            glow_col = (fill_col[0], fill_col[1], fill_col[2], 100)
+            for offset in [(4,4), (-4,-4), (4,-4), (-4,4), (0,5), (5,0)]:
+                draw.text((x + offset[0], y + offset[1]), text, font=font, fill=glow_col, stroke_width=stroke_width+4, stroke_fill=(0,0,0,100))
+            draw.text((x, y), text, font=font, fill=(255, 255, 255), stroke_width=stroke_width, stroke_fill=(0, 0, 0, 255))
 
         elif preset_style == "Clean Minimalist":
-            draw.text((x + 4, y + 4), text, font=font, fill=(0, 0, 0, 180))
+            if s_alpha > 0:
+                draw.text((x + s_offset, y + s_offset), text, font=font, fill=(0, 0, 0, s_alpha))
             draw.text((x, y), text, font=font, fill=fill_col)
 
-        else:  # Hormozi Viral Pop
-            stroke_width = max(8, int(font_size * 0.14))
-            shadow_offset = max(6, int(font_size * 0.09))
-            draw.text((x + shadow_offset, y + shadow_offset), text, font=font, fill=(0, 0, 0, 210), stroke_width=stroke_width, stroke_fill=(0, 0, 0, 210))
+        else:  # Hormozi Viral Pop (Default)
+            if s_alpha > 0:
+                draw.text((x + s_offset, y + s_offset), text, font=font, fill=(0, 0, 0, s_alpha), stroke_width=stroke_width, stroke_fill=(0, 0, 0, s_alpha))
             draw.text((x, y), text, font=font, fill=fill_col, stroke_width=stroke_width, stroke_fill=(0, 0, 0, 255))
 
         filename = os.path.join(out_dir, f"sub_{idx}.png")
@@ -197,7 +211,7 @@ def create_subtitle_overlays(segments, position, color_name, preset_style, font_
 
 # ----------------- UI WORKSPACE -----------------
 st.title("🎬 CaptionVFX AI Studio Pro")
-st.caption("Massive Viral Typography • Hormozi 1-2 Word Pop • 4K Visual Boost")
+st.caption("Massive Responsive Subtitles • Custom VFX Styles • Precision Audio Sync")
 
 uploaded_file = st.file_uploader("📤 Upload Video (MP4/MOV)", type=["mp4", "mov"])
 
@@ -213,7 +227,7 @@ if uploaded_file:
     with open(input_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
 
-    # Get Duration & Dimensions
+    # Duration & Resolution probe
     video_duration = 10.0
     vw, vh = 1080, 1920
     try:
@@ -238,8 +252,8 @@ if uploaded_file:
         st.video(input_path)
         st.markdown(f"""
         <div class="metric-card">
-            ⚡ <b>Canvas:</b> {vw}x{vh} HD<br>
-            ⏱️ <b>Duration:</b> {video_duration:.1f}s | Hormozi Fast-Cut Sync
+            ⚡ <b>Canvas:</b> {vw}x{vh} (Exact Video Aspect)<br>
+            ⏱️ <b>Duration:</b> {video_duration:.1f}s | Pro Auto-Sync Active
         </div>
         """, unsafe_allow_html=True)
 
@@ -260,7 +274,7 @@ if uploaded_file:
                 "✨ Subtitle VFX Style",
                 [
                     "Hormozi Viral Pop",
-                    "Neon Glow & Shadow",
+                    "Neon Glow",
                     "Modern Pill Badge",
                     "Clean Minimalist"
                 ]
@@ -275,10 +289,12 @@ if uploaded_file:
                     "Hot Pink"
                 ]
             )
-        
+            stroke_mode = st.selectbox("🖋️ Outline (Stroke)", ["Medium", "Bold", "Thin", "Ultra Thick"])
+
         with c2:
             position = st.selectbox("📍 Subtitle Position", ["Bottom", "Middle", "Top"])
-            font_size_user = st.slider("🔤 Font Size", 40, 100, 70)
+            font_size_user = st.slider("🔤 Font Size (Jumbo)", 40, 180, 95)
+            shadow_mode = st.selectbox("🌘 Shadow Intensity", ["Soft Shadow", "Medium Shadow", "Off", "Strong Shadow"])
 
         st.markdown("---")
         st.subheader("🚀 Video Enhancements")
@@ -301,14 +317,14 @@ if uploaded_file:
         progress_bar = st.progress(0)
         status_text = st.empty()
 
-        # 1. Clean Audio Track
+        # 1. Audio Track Extraction
         status_text.text("🎙️ Extracting Clean Audio Track...")
         progress_bar.progress(25)
         cmd_extract = f'"{FFMPEG_EXE}" -y -i "{input_path}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "{audio_path}"'
         subprocess.run(cmd_extract, shell=True, capture_output=True)
 
-        # 2. Voice AI Transcription
-        status_text.text("🤖 Transcribing Real Spoken Words...")
+        # 2. Transcription
+        status_text.text("🤖 Transcribing Spoken Audio...")
         progress_bar.progress(50)
         
         recognized_text = custom_override.strip()
@@ -322,11 +338,11 @@ if uploaded_file:
             except Exception:
                 recognized_text = ""
 
-        # Divide into Fast 1 to 2 word punchy chunks (Real Viral Reel Format)
+        # Divide into punchy 2-word chunks
         segments = []
         if recognized_text:
             words = recognized_text.split()
-            chunk_size = 2  # Max 2 words per screen
+            chunk_size = 2
             word_chunks = [words[i:i + chunk_size] for i in range(0, len(words), chunk_size)]
             time_per_chunk = float(video_duration) / max(1, len(word_chunks))
             
@@ -351,10 +367,13 @@ if uploaded_file:
                 {'start': video_duration/2, 'end': video_duration, 'text': 'VIRAL REEL'}
             ]
 
-        # 3. Clean Massive HD Overlays
-        status_text.text("🎨 Generating Large Viral Typography...")
+        # 3. Generate Overlays
+        status_text.text("🎨 Generating Custom Subtitle Overlays...")
         progress_bar.progress(70)
-        overlays = create_subtitle_overlays(segments, position, primary_color, preset_style, font_size_user, vw, vh, overlays_dir)
+        overlays = create_subtitle_overlays(
+            segments, position, primary_color, preset_style,
+            font_size_user, shadow_mode, stroke_mode, vw, vh, overlays_dir
+        )
 
         # 4. Multi-Overlay + Enhancements Burn
         status_text.text("⚡ Applying Enhancements & Merging...")
@@ -403,9 +422,9 @@ if uploaded_file:
         progress_bar.progress(100)
         status_text.empty()
 
-        # 5. Output Display & Download
+        # 5. Output Video Display & Download
         if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
-            st.success("✅ Massive Viral Reel Ready!")
+            st.success("✅ Subtitled Reel Ready with Custom Options!")
             with open(output_path, "rb") as vid_file:
                 video_bytes = vid_file.read()
                 st.video(video_bytes)
