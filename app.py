@@ -49,17 +49,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ----------------- AUTO-DOWNLOAD BOLD TTF FONT -----------------
-FONT_LOCAL_PATH = "/tmp/ImpactBold.ttf"
-if not os.path.exists(FONT_LOCAL_PATH):
-    try:
-        url = "https://github.com/google/fonts/raw/main/apache/robotocondensed/RobotoCondensed%5Bwght%5D.ttf"
-        r = requests.get(url, timeout=10)
-        with open(FONT_LOCAL_PATH, "wb") as f:
-            f.write(r.content)
-    except Exception:
-        pass
-
 # ----------------- ACCURATE HINGLISH TRANSLITERATOR -----------------
 def devanagari_to_hinglish(text: str) -> str:
     matras = {
@@ -119,6 +108,25 @@ def devanagari_to_hinglish(text: str) -> str:
 
     return " ".join(output_words)
 
+# ----------------- SAFE SYSTEM FONT LOADER -----------------
+def get_scalable_font(size):
+    font_paths = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf"
+    ]
+    for p in font_paths:
+        if os.path.exists(p):
+            try:
+                return ImageFont.truetype(p, size)
+            except Exception:
+                pass
+    try:
+        return ImageFont.truetype("DejaVuSans-Bold.ttf", size)
+    except Exception:
+        return ImageFont.load_default()
+
 # ----------------- BIG VIRAL OVERLAYS -----------------
 def create_subtitle_overlays(segments, position, color_name, font_size_val, out_dir):
     color_dict = {
@@ -132,15 +140,12 @@ def create_subtitle_overlays(segments, position, color_name, font_size_val, out_
     os.makedirs(out_dir, exist_ok=True)
 
     overlay_files = []
+    font = get_scalable_font(font_size_val)
+
     for idx, seg in enumerate(segments):
         img = Image.new("RGBA", (1080, 1920), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
         text = seg['text'].strip().upper()
-
-        if os.path.exists(FONT_LOCAL_PATH):
-            font = ImageFont.truetype(FONT_LOCAL_PATH, font_size_val)
-        else:
-            font = ImageFont.load_default()
 
         bbox = draw.textbbox((0, 0), text, font=font)
         text_w = bbox[2] - bbox[0]
@@ -148,22 +153,19 @@ def create_subtitle_overlays(segments, position, color_name, font_size_val, out_
 
         x = (1080 - text_w) // 2
         
-        # Position mapping
         if position == "Top":
             y = 300
         elif position == "Middle":
             y = (1920 - text_h) // 2
         else:
-            y = 1380  # Viral reel sweet spot (clear of UI & bottom bar)
+            y = 1380  # Viral reel lower-third position
 
-        # Bold black rounded badge background
-        pad_x = 45
-        pad_y = 25
+        pad_x = 40
+        pad_y = 22
         banner_box = [x - pad_x, y - pad_y, x + text_w + pad_x, y + text_h + pad_y]
-        draw.rounded_rectangle(banner_box, radius=28, fill=(0, 0, 0, 215))
+        draw.rounded_rectangle(banner_box, radius=24, fill=(0, 0, 0, 210))
         
-        # Stroke and main text
-        stroke_val = max(5, font_size_val // 15)
+        stroke_val = max(4, font_size_val // 18)
         draw.text((x, y), text, font=font, fill=fill_col, stroke_width=stroke_val, stroke_fill=(0, 0, 0, 255))
         
         filename = os.path.join(out_dir, f"sub_{idx}.png")
@@ -190,7 +192,7 @@ if uploaded_file:
     with open(input_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
 
-    # Get Duration
+    # Duration Check
     video_duration = 10.0
     try:
         dur_cmd = f'"{FFMPEG_EXE}" -i "{input_path}" 2>&1'
@@ -208,7 +210,7 @@ if uploaded_file:
         st.markdown(f"""
         <div class="metric-card">
             ⚡ <b>Subtitle Engine:</b> Big Viral Typography<br>
-            ⏱️ <b>Duration:</b> {video_duration:.1f}s | 🎯 1080x1920
+            ⏱️ <b>Duration:</b> {video_duration:.1f}s | 🎯 1080x1920 Ready
         </div>
         """, unsafe_allow_html=True)
 
@@ -229,16 +231,16 @@ if uploaded_file:
         
         with c2:
             position = st.selectbox("📍 Subtitle Position", ["Bottom", "Middle", "Top"])
-            font_size = st.slider("🔤 Font Size", 60, 160, 110)
+            font_size = st.slider("🔤 Font Size", 60, 160, 100)
 
-        custom_override = st.text_input("✍️ Manual Subtitle Override (Optional)", placeholder="Khaali chhoden agar video audio auto-detect chahiye")
+        custom_override = st.text_input("✍️ Manual Subtitle Override (Optional)", placeholder="Khaali chhoden agar auto audio detect chahiye")
 
     if st.button("🚀 Render Subtitled Video", use_container_width=True):
         progress_bar = st.progress(0)
         status_text = st.empty()
 
         # 1. Clean Audio Extraction
-        status_text.text("🎙️ Extracting Clean Audio Track...")
+        status_text.text("🎙️ Extracting Audio Track...")
         progress_bar.progress(25)
         cmd_extract = f'"{FFMPEG_EXE}" -y -i "{input_path}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "{audio_path}"'
         subprocess.run(cmd_extract, shell=True, capture_output=True)
@@ -331,4 +333,4 @@ if uploaded_file:
             st.error("Render issue. Please try again.")
 
         gc.collect()
-        
+                
