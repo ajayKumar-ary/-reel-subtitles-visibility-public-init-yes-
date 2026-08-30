@@ -43,11 +43,12 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ----------------- HINGLISH TRANSLITERATION ENGINE -----------------
+# ----------------- ACCURATE HINGLISH TRANSLITERATOR -----------------
 def devanagari_to_hinglish(text: str) -> str:
     matras = {
-        'ा': 'aa', 'ि': 'i', 'ी': 'ee', 'ु': 'u', 'ू': 'oo', 'ृ': 'ri',
-        'े': 'e', 'ै': 'ai', 'ो': 'o', 'ौ': 'au', 'ं': 'n', '्': '', 'ः': 'h'
+        'ा': 'a', 'ि': 'i', 'ी': 'ee', 'ु': 'u', 'ू': 'oo', 'ृ': 'ri',
+        'े': 'e', 'ै': 'ai', 'ो': 'o', 'ौ': 'au', 'ं': 'n', '्': '', 'ः': 'h',
+        'ँ': 'n', '़': ''
     }
     vowels = {
         'अ': 'a', 'आ': 'aa', 'इ': 'i', 'ई': 'ee', 'उ': 'u', 'ऊ': 'oo',
@@ -60,12 +61,18 @@ def devanagari_to_hinglish(text: str) -> str:
         'त': 't', 'थ': 'th', 'द': 'd', 'ध': 'dh', 'न': 'n',
         'प': 'p', 'फ': 'ph', 'ब': 'b', 'भ': 'bh', 'म': 'm',
         'य': 'y', 'र': 'r', 'ल': 'l', 'व': 'v', 'श': 'sh',
-        'ष': 'sh', 'स': 's', 'ह': 'h', 'ड़': 'd', 'ढ़': 'dh', 'ज़': 'z', 'फ़': 'f'
+        'ष': 'sh', 'स': 's', 'ह': 'h', 'ड़': 'd', 'ढ़': 'dh',
+        'ज़': 'z', 'फ़': 'f', 'ग़': 'g', 'ख़': 'kh', 'क़': 'q'
     }
 
     words = text.split()
-    converted_words = []
+    output_words = []
+    
     for word in words:
+        if not re.search(r'[\u0900-\u097F]', word):
+            output_words.append(word.upper())
+            continue
+            
         res = []
         i = 0
         w_len = len(word)
@@ -88,9 +95,13 @@ def devanagari_to_hinglish(text: str) -> str:
             else:
                 res.append(c)
             i += 1
-        w_res = "".join(res)
-        converted_words.append(w_res.upper() if w_res else word)
-    return " ".join(converted_words)
+        
+        word_hinglish = "".join(res).upper()
+        # Clean double vowels at end
+        word_hinglish = re.sub(r'AA$', 'A', word_hinglish)
+        output_words.append(word_hinglish if word_hinglish else word)
+
+    return " ".join(output_words)
 
 # ----------------- HELPER FUNCTIONS -----------------
 def format_timestamp_ass(seconds: float) -> str:
@@ -108,15 +119,15 @@ def cleanup_files(files_list):
                 pass
 
 # ----------------- ASS SUBTITLE BUILDER -----------------
-def generate_ass_subtitles(segments, preset_style, font_size, primary_color, position, convert_to_hinglish):
+def generate_ass_subtitles(segments, preset_style, font_size, primary_color, position, lang_mode):
     align_val = 2
-    margin_v = 50
+    margin_v = 55
     if position == "Middle":
         align_val = 5
         margin_v = 0
     elif position == "Top":
         align_val = 8
-        margin_v = 50
+        margin_v = 55
 
     colors_map = {
         "Yellow Highlight": "&H0000FFFF",
@@ -130,6 +141,9 @@ def generate_ass_subtitles(segments, preset_style, font_size, primary_color, pos
     outline_val = 4 if "Hormozi" in preset_style or "Bold" in preset_style else 2.5
     shadow_val = 3 if "Neon" in preset_style or "Shadow" in preset_style else 0
 
+    # Auto font selection: Lohit Devanagari for Hindi, DejaVu for Hinglish/English
+    font_name = "Lohit Devanagari" if "Pure Hindi" in lang_mode else "DejaVu Sans"
+
     ass_header = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
@@ -138,22 +152,23 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,DejaVu Sans,{font_size},{pri_c},&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,{outline_val},{shadow_val},{align_val},20,20,{margin_v},1
+Style: Default,{font_name},{font_size},{pri_c},&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,{outline_val},{shadow_val},{align_val},25,25,{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     events = []
     for seg in segments:
-        text = seg['text'].strip()
-        if not text:
+        raw_text = seg['text'].strip()
+        if not raw_text:
             continue
         
-        # Devanagari to Hinglish conversion if enabled
-        if convert_to_hinglish and bool(re.search(r'[\u0900-\u097F]', text)):
-            text = devanagari_to_hinglish(text)
+        if "Hinglish" in lang_mode:
+            text = devanagari_to_hinglish(raw_text)
+        elif "Pure Hindi" in lang_mode:
+            text = raw_text
         else:
-            text = text.upper()
+            text = raw_text.upper()
         
         words = text.split()
         if len(words) > 3:
@@ -173,7 +188,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 # ----------------- UI WORKSPACE -----------------
 st.title("🎬 CaptionVFX AI Studio Pro")
-st.caption("AI Subtitles • Hinglish Auto-Transcribe • VFX Animations • 4K Visual Boost")
+st.caption("AI Subtitles • True Hinglish Romanizer • Hindi Devanagari • 4K Visual Boost")
 
 uploaded_file = st.file_uploader("📤 Upload Video (MP4/MOV)", type=["mp4", "mov"])
 
@@ -188,7 +203,7 @@ if uploaded_file:
         st.markdown("""
         <div class="metric-card">
             🎯 <b>Output Quality:</b> 1080x1920 (Reels & Shorts Ready)<br>
-            ⚡ <b>Subtitle Engine:</b> Whisper Neural Anti-Confusion Mode
+            ⚡ <b>Subtitle Engine:</b> Strict Hindi Transcribe + True Hinglish Transliteration
         </div>
         """, unsafe_allow_html=True)
 
@@ -198,11 +213,11 @@ if uploaded_file:
         c1, c2 = st.columns(2)
         with c1:
             lang_mode = st.selectbox(
-                "🌐 Subtitle Output Mode",
+                "🌐 Subtitle Output Language",
                 [
-                    "Hinglish / English (Recommended)",
-                    "Pure Hindi (हिन्दी)",
-                    "Pure English"
+                    "Hinglish (Aap Kaise Ho)",
+                    "Pure Hindi (आप कैसे हैं)",
+                    "English (Only if audio is English)"
                 ]
             )
             preset_style = st.selectbox("✨ Subtitle VFX Style", ["Hormozi Viral Pop", "Neon Glow & Shadow", "Clean Minimalist", "Classic Bold"])
@@ -211,7 +226,7 @@ if uploaded_file:
         with c2:
             position = st.selectbox("📍 Subtitle Position", ["Bottom", "Middle", "Top"])
             font_size = st.slider("🔤 Font Size", 20, 56, 36)
-            whisper_model = st.selectbox("⚡ AI Engine Model", ["base (Recommended)", "small (High Accuracy)", "tiny (Fastest)"])
+            whisper_model = st.selectbox("⚡ AI Processing Speed", ["base (Recommended)", "small (High Accuracy)", "tiny (Super Fast)"])
 
         st.markdown("---")
         st.subheader("🚀 Video Enhancements")
@@ -231,25 +246,24 @@ if uploaded_file:
         cmd_extract = "ffmpeg -y -i temp_input.mp4 -vn -acodec pcm_s16le -ar 16000 -ac 1 temp_audio.wav"
         subprocess.run(cmd_extract, shell=True, capture_output=True)
 
-        # 2. Whisper Speech Recognition (Guaranteed Anti-Arabic Mode)
-        status_text.text("🤖 Transcribing Voice with AI Engine...")
+        # 2. Whisper Speech Recognition (Locked in Transcribe Mode - No English translation override)
+        status_text.text("🤖 Transcribing Hindi Speech accurately...")
         progress_bar.progress(45)
         model_name = whisper_model.split()[0]
         model = whisper.load_model(model_name)
         
-        # Audio prompt to prevent hallucinating Arabic/Urdu scripts
-        hindi_prompt = "Namaste dosto, yeh ek video hai jisme Hindi aur Hinglish me baat ho rahi hai."
+        # Audio prompt in pure devanagari to lock Hindi detection
+        hindi_prompt = "नमस्ते, यह एक हिन्दी और हिंग्लिश वीडियो है।"
         
-        if "Hinglish / English" in lang_mode:
-            # Transcribe & Translate automatically to English/Hinglish alphabet
+        if "English" in lang_mode:
             transcription = model.transcribe(
                 "temp_audio.wav",
-                task="translate",
-                initial_prompt=hindi_prompt,
+                language="en",
+                task="transcribe",
                 fp16=False
             )
-            convert_to_hinglish = True
-        elif "Pure Hindi" in lang_mode:
+        else:
+            # Force Hindi transcribe mode so it captures exact spoken words in Devanagari
             transcription = model.transcribe(
                 "temp_audio.wav",
                 language="hi",
@@ -257,15 +271,6 @@ if uploaded_file:
                 initial_prompt=hindi_prompt,
                 fp16=False
             )
-            convert_to_hinglish = False
-        else:
-            transcription = model.transcribe(
-                "temp_audio.wav",
-                language="en",
-                task="transcribe",
-                fp16=False
-            )
-            convert_to_hinglish = False
 
         # 3. Generate ASS Subtitles
         status_text.text("🎨 Applying Subtitle VFX Animations...")
@@ -276,7 +281,7 @@ if uploaded_file:
             font_size,
             primary_color,
             position,
-            convert_to_hinglish
+            lang_mode
         )
         with open("subtitles.ass", "w", encoding="utf-8") as f:
             f.write(ass_content)
