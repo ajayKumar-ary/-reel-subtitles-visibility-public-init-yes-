@@ -50,23 +50,39 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ----------------- HIGH-QUALITY FONT FETCHER -----------------
-@st.cache_resource
-def load_hd_font_bytes():
-    urls = [
-        "https://cdn.jsdelivr.net/gh/google/fonts/ofl/montserrat/Montserrat-Black.ttf",
-        "https://cdn.jsdelivr.net/gh/google/fonts/apache/roboto/Roboto-Black.ttf"
-    ]
-    for url in urls:
-        try:
-            res = requests.get(url, timeout=6)
-            if res.status_code == 200 and len(res.content) > 10000:
-                return res.content
-        except Exception:
-            continue
-    return None
+# ----------------- GUARANTEED FONT LOADER -----------------
+def get_custom_font(size):
+    font_file = "/tmp/caption_font.ttf"
+    if not os.path.exists(font_file) or os.path.getsize(font_file) < 5000:
+        urls = [
+            "https://raw.githubusercontent.com/googlefonts/roboto/main/src/hinted/Roboto-Black.ttf",
+            "https://cdn.jsdelivr.net/gh/google/fonts/apache/roboto/Roboto-Black.ttf",
+            "https://cdnjs.cloudflare.com/ajax/libs/ink/3.1.10/fonts/Roboto/roboto-bold-webfont.ttf"
+        ]
+        for u in urls:
+            try:
+                res = requests.get(u, timeout=4)
+                if res.status_code == 200 and len(res.content) > 5000:
+                    with open(font_file, "wb") as f:
+                        f.write(res.content)
+                    break
+            except Exception:
+                continue
 
-FONT_BYTES = load_hd_font_bytes()
+    if os.path.exists(font_file):
+        try:
+            return ImageFont.truetype(font_file, size), True
+        except Exception:
+            pass
+
+    for sys_font in ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "DejaVuSans-Bold.ttf"]:
+        if os.path.exists(sys_font):
+            try:
+                return ImageFont.truetype(sys_font, size), True
+            except Exception:
+                pass
+
+    return ImageFont.load_default(), False
 
 # ----------------- ACCURATE HINGLISH TRANSLITERATOR -----------------
 def devanagari_to_hinglish(text: str) -> str:
@@ -83,7 +99,7 @@ def devanagari_to_hinglish(text: str) -> str:
         'क': 'k', 'ख': 'kh', 'ग': 'g', 'घ': 'gh', 'ङ': 'ng',
         'च': 'ch', 'छ': 'chh', 'ज': 'j', 'झ': 'jh', 'ञ': 'ny',
         'ट': 't', 'ठ': 'th', 'ड': 'd', 'ढ': 'dh', 'ण': 'n',
-        'त': 't', 'थ': 'th', 'द': 'd', 'ध': 'dh', 'न': 'n',
+        'त': 't', 'थ': 'th', 'द': 'd', 'dh': 'dh', 'न': 'n',
         'प': 'p', 'ph': 'ph', 'ब': 'b', 'भ': 'bh', 'म': 'm',
         'य': 'y', 'र': 'r', 'ल': 'l', 'व': 'v', 'श': 'sh',
         'ष': 'sh', 'स': 's', 'ह': 'h', 'ड़': 'd', 'ढ़': 'dh',
@@ -127,7 +143,7 @@ def devanagari_to_hinglish(text: str) -> str:
 
     return " ".join(output_words)
 
-# ----------------- DYNAMIC MASSIVE OVERLAYS -----------------
+# ----------------- MASSIVE RESIZE-PROOF OVERLAYS -----------------
 def create_subtitle_overlays(segments, position, color_name, preset_style, font_size_user, shadow_mode, stroke_mode, vw, vh, out_dir):
     color_dict = {
         "Yellow Highlight": (255, 230, 0),
@@ -139,79 +155,94 @@ def create_subtitle_overlays(segments, position, color_name, preset_style, font_
     fill_col = color_dict.get(color_name, (255, 230, 0))
     os.makedirs(out_dir, exist_ok=True)
 
-    # True Large Scaler
-    calculated_font_size = int((vw / 1080.0) * font_size_user * 1.8)
-    font_size = max(50, calculated_font_size)
+    # Calculate large scalable target size (8% - 10% of video width)
+    target_font_size = int((vw / 1080.0) * font_size_user * 2.2)
+    font, is_ttf = get_custom_font(target_font_size)
 
-    if FONT_BYTES:
-        font = ImageFont.truetype(io.BytesIO(FONT_BYTES), font_size)
-    else:
-        font = ImageFont.load_default()
+    stroke_mult = {"Thin": 0.05, "Medium": 0.08, "Bold": 0.12, "Ultra Thick": 0.16}
+    stroke_w = max(4, int(target_font_size * stroke_mult.get(stroke_mode, 0.08)))
 
-    # Stroke setup
-    stroke_mult = {"Thin": 0.05, "Medium": 0.09, "Bold": 0.13, "Ultra Thick": 0.18}
-    stroke_width = max(2, int(font_size * stroke_mult.get(stroke_mode, 0.09)))
-
-    # Shadow opacity & offset
     shadow_settings = {
         "Off": (0, 0),
-        "Soft Shadow": (int(font_size * 0.04), 90),
-        "Medium Shadow": (int(font_size * 0.06), 140),
-        "Strong Shadow": (int(font_size * 0.08), 200)
+        "Soft Shadow": (int(target_font_size * 0.04), 80),
+        "Medium Shadow": (int(target_font_size * 0.06), 130),
+        "Strong Shadow": (int(target_font_size * 0.08), 190)
     }
-    s_offset, s_alpha = shadow_settings.get(shadow_mode, (int(font_size * 0.04), 90))
+    s_offset, s_alpha = shadow_settings.get(shadow_mode, (int(target_font_size * 0.04), 80))
 
     overlay_files = []
     for idx, seg in enumerate(segments):
-        img = Image.new("RGBA", (vw, vh), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img)
         text = seg['text'].strip().upper()
-
-        bbox = draw.textbbox((0, 0), text, font=font)
-        text_w = bbox[2] - bbox[0]
-        text_h = bbox[3] - bbox[1]
-
-        x = (vw - text_w) // 2
         
-        if position == "Top":
-            y = int(vh * 0.16)
-        elif position == "Middle":
-            y = (vh - text_h) // 2
-        else:
-            y = int(vh * 0.76)
+        # 1. Render tight text canvas
+        test_img = Image.new("RGBA", (1, 1), (0, 0, 0, 0))
+        test_draw = ImageDraw.Draw(test_img)
+        bbox = test_draw.textbbox((0, 0), text, font=font)
+        raw_w = max(10, bbox[2] - bbox[0])
+        raw_h = max(10, bbox[3] - bbox[1])
+
+        pad_x = int(raw_w * 0.12) + stroke_w + s_offset + 10
+        pad_y = int(raw_h * 0.15) + stroke_w + s_offset + 10
+        badge_w = raw_w + (pad_x * 2)
+        badge_h = raw_h + (pad_y * 2)
+
+        badge_img = Image.new("RGBA", (badge_w, badge_h), (0, 0, 0, 0))
+        d_badge = ImageDraw.Draw(badge_img)
+
+        text_x = pad_x - bbox[0]
+        text_y = pad_y - bbox[1]
 
         if preset_style == "Modern Pill Badge":
-            pad_x = int(vw * 0.04)
-            pad_y = int(vh * 0.015)
-            badge_rect = [x - pad_x, y - pad_y, x + text_w + pad_x, y + text_h + pad_y]
-            draw.rounded_rectangle(badge_rect, radius=int(vh*0.018), fill=(0, 0, 0, 180))
-            draw.text((x, y), text, font=font, fill=fill_col, stroke_width=stroke_width, stroke_fill=(0, 0, 0, 255))
+            d_badge.rounded_rectangle([0, 0, badge_w, badge_h], radius=int(badge_h * 0.3), fill=(0, 0, 0, 180))
+            d_badge.text((text_x, text_y), text, font=font, fill=fill_col, stroke_width=2, stroke_fill=(0, 0, 0, 255))
         
         elif preset_style == "Neon Glow":
             glow_col = (fill_col[0], fill_col[1], fill_col[2], 100)
             for offset in [(4,4), (-4,-4), (4,-4), (-4,4), (0,5), (5,0)]:
-                draw.text((x + offset[0], y + offset[1]), text, font=font, fill=glow_col, stroke_width=stroke_width+4, stroke_fill=(0,0,0,100))
-            draw.text((x, y), text, font=font, fill=(255, 255, 255), stroke_width=stroke_width, stroke_fill=(0, 0, 0, 255))
+                d_badge.text((text_x + offset[0], text_y + offset[1]), text, font=font, fill=glow_col, stroke_width=stroke_w+4, stroke_fill=(0,0,0,100))
+            d_badge.text((text_x, text_y), text, font=font, fill=(255, 255, 255), stroke_width=stroke_w, stroke_fill=(0, 0, 0, 255))
 
         elif preset_style == "Clean Minimalist":
             if s_alpha > 0:
-                draw.text((x + s_offset, y + s_offset), text, font=font, fill=(0, 0, 0, s_alpha))
-            draw.text((x, y), text, font=font, fill=fill_col)
+                d_badge.text((text_x + s_offset, text_y + s_offset), text, font=font, fill=(0, 0, 0, s_alpha))
+            d_badge.text((text_x, text_y), text, font=font, fill=fill_col)
 
-        else:  # Hormozi Viral Pop (Default)
+        else:  # Hormozi Viral Pop
             if s_alpha > 0:
-                draw.text((x + s_offset, y + s_offset), text, font=font, fill=(0, 0, 0, s_alpha), stroke_width=stroke_width, stroke_fill=(0, 0, 0, s_alpha))
-            draw.text((x, y), text, font=font, fill=fill_col, stroke_width=stroke_width, stroke_fill=(0, 0, 0, 255))
+                d_badge.text((text_x + s_offset, text_y + s_offset), text, font=font, fill=(0, 0, 0, s_alpha), stroke_width=stroke_w, stroke_fill=(0, 0, 0, s_alpha))
+            d_badge.text((text_x, text_y), text, font=font, fill=fill_col, stroke_width=stroke_w, stroke_fill=(0, 0, 0, 255))
 
+        # 2. Magnify to guaranteed 75% video width if default font was used
+        if not is_ttf or badge_w < int(vw * 0.4):
+            scaled_w = int(vw * 0.72)
+            scaled_h = int(badge_h * (scaled_w / float(badge_w)))
+            badge_img = badge_img.resize((scaled_w, scaled_h), Image.Resampling.LANCZOS)
+            final_w, final_h = scaled_w, scaled_h
+        else:
+            final_w, final_h = badge_w, badge_h
+
+        # 3. Paste to Full Video Canvas
+        final_overlay = Image.new("RGBA", (vw, vh), (0, 0, 0, 0))
+        paste_x = (vw - final_w) // 2
+        
+        if position == "Top":
+            paste_y = int(vh * 0.16)
+        elif position == "Middle":
+            paste_y = (vh - final_h) // 2
+        else:
+            paste_y = int(vh * 0.74)
+
+        final_overlay.paste(badge_img, (paste_x, paste_y), badge_img)
+        
         filename = os.path.join(out_dir, f"sub_{idx}.png")
-        img.save(filename, "PNG")
+        final_overlay.save(filename, "PNG")
         overlay_files.append((filename, seg['start'], seg['end']))
         
     return overlay_files
 
 # ----------------- UI WORKSPACE -----------------
 st.title("🎬 CaptionVFX AI Studio Pro")
-st.caption("Massive Responsive Subtitles • Custom VFX Styles • Precision Audio Sync")
+st.caption("Massive Auto-Scaled Subtitles • Hormozi Fast-Cut • Precision Audio Sync")
 
 uploaded_file = st.file_uploader("📤 Upload Video (MP4/MOV)", type=["mp4", "mov"])
 
@@ -227,7 +258,6 @@ if uploaded_file:
     with open(input_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
 
-    # Duration & Resolution probe
     video_duration = 10.0
     vw, vh = 1080, 1920
     try:
@@ -252,8 +282,8 @@ if uploaded_file:
         st.video(input_path)
         st.markdown(f"""
         <div class="metric-card">
-            ⚡ <b>Canvas:</b> {vw}x{vh} (Exact Video Aspect)<br>
-            ⏱️ <b>Duration:</b> {video_duration:.1f}s | Pro Auto-Sync Active
+            ⚡ <b>Canvas:</b> {vw}x{vh} (Dynamic Scaler Active)<br>
+            ⏱️ <b>Duration:</b> {video_duration:.1f}s | Hormozi 2-Word Sync
         </div>
         """, unsafe_allow_html=True)
 
@@ -293,7 +323,7 @@ if uploaded_file:
 
         with c2:
             position = st.selectbox("📍 Subtitle Position", ["Bottom", "Middle", "Top"])
-            font_size_user = st.slider("🔤 Font Size (Jumbo)", 40, 180, 95)
+            font_size_user = st.slider("🔤 Font Size (Jumbo Scale)", 50, 180, 110)
             shadow_mode = st.selectbox("🌘 Shadow Intensity", ["Soft Shadow", "Medium Shadow", "Off", "Strong Shadow"])
 
         st.markdown("---")
@@ -368,7 +398,7 @@ if uploaded_file:
             ]
 
         # 3. Generate Overlays
-        status_text.text("🎨 Generating Custom Subtitle Overlays...")
+        status_text.text("🎨 Generating Scaled Jumbo Overlays...")
         progress_bar.progress(70)
         overlays = create_subtitle_overlays(
             segments, position, primary_color, preset_style,
@@ -424,7 +454,7 @@ if uploaded_file:
 
         # 5. Output Video Display & Download
         if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
-            st.success("✅ Subtitled Reel Ready with Custom Options!")
+            st.success("✅ Massive Viral Reel Ready!")
             with open(output_path, "rb") as vid_file:
                 video_bytes = vid_file.read()
                 st.video(video_bytes)
@@ -439,4 +469,4 @@ if uploaded_file:
             st.error("Render issue. Please try again.")
 
         gc.collect()
-    
+        
