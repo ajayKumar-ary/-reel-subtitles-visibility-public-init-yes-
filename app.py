@@ -5,7 +5,7 @@ import requests
 import json
 import gc
 import re
-import shutil
+from moviepy.editor import VideoFileClip, TextClip, CompositeVideoClip, vfx
 
 # ----------------- PAGE CONFIG -----------------
 st.set_page_config(
@@ -104,41 +104,29 @@ def devanagari_to_hinglish(text: str) -> str:
 
     return " ".join(output_words)
 
-def format_timestamp_srt(seconds: float) -> str:
-    hours = int(seconds // 3600)
-    minutes = int((seconds % 3600) // 60)
-    secs = int(seconds % 60)
-    milli = int((seconds - int(seconds)) * 1000)
-    return f"{hours:02d}:{minutes:02d}:{secs:02d},{milli:03d}"
-
 # ----------------- UI WORKSPACE -----------------
 st.title("🎬 CaptionVFX AI Studio Pro")
-st.caption("Cloud AI Subtitles • Hinglish Auto-Romanize • VFX Pop Animations • 4K Visual Boost")
+st.caption("Cloud AI Subtitles • MoviePy Pure Render • Hinglish Auto-Romanize • 4K Visual Boost")
 
 hf_token = st.secrets.get("HF_TOKEN", "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")
 
 uploaded_file = st.file_uploader("📤 Upload Video (MP4/MOV)", type=["mp4", "mov"])
 
 if uploaded_file:
-    # Save video directly to safe /tmp/ location
-    input_path = "/tmp/reel_in.mp4"
-    audio_path = "/tmp/reel_audio.wav"
-    srt_path = "/tmp/reel_sub.srt"
-    output_path = "/tmp/reel_out.mp4"
+    input_path = "/tmp/in_video.mp4"
+    audio_path = "/tmp/in_audio.wav"
+    output_path = "/tmp/out_video.mp4"
 
     with open(input_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
 
-    # Duration Check
-    video_duration = 10.0
+    # Get Duration safely with MoviePy
     try:
-        dur_cmd = f'ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 {input_path}'
-        dur_proc = subprocess.run(dur_cmd, shell=True, capture_output=True, text=True)
-        val = float(dur_proc.stdout.strip())
-        if val > 0:
-            video_duration = val
+        temp_clip = VideoFileClip(input_path)
+        video_duration = temp_clip.duration
+        temp_clip.close()
     except:
-        pass
+        video_duration = 10.0
 
     col_preview, col_settings = st.columns([1, 1.2])
 
@@ -169,7 +157,7 @@ if uploaded_file:
         
         with c2:
             position = st.selectbox("📍 Subtitle Position", ["Bottom", "Middle", "Top"])
-            font_size = st.slider("🔤 Font Size", 20, 56, 34)
+            font_size = st.slider("🔤 Font Size", 24, 60, 40)
 
         st.markdown("---")
         st.subheader("🚀 Video Enhancements")
@@ -185,13 +173,13 @@ if uploaded_file:
 
         # 1. Clean Audio Extraction
         status_text.text("🎙️ Extracting Clean Audio...")
-        progress_bar.progress(25)
+        progress_bar.progress(20)
         cmd_extract = f"ffmpeg -y -i {input_path} -vn -acodec pcm_s16le -ar 16000 -ac 1 {audio_path}"
         subprocess.run(cmd_extract, shell=True, capture_output=True)
 
-        # 2. Cloud AI Whisper Call
-        status_text.text("🤖 Transcribing with HuggingFace Cloud AI...")
-        progress_bar.progress(50)
+        # 2. Hugging Face Cloud Transcription
+        status_text.text("🤖 Transcribing Voice with AI...")
+        progress_bar.progress(45)
         
         segments = []
         API_URL = "https://router.huggingface.co/hf-inference/models/openai/whisper-large-v3"
@@ -228,62 +216,91 @@ if uploaded_file:
                 {'start': video_duration/2, 'end': video_duration, 'text': 'FOLLOW FOR MORE'}
             ]
 
-        # 3. Create Standard SRT File
-        status_text.text("🎨 Formatting Subtitle Track...")
+        # 3. MoviePy Direct Video Composition (Zero FFmpeg subtitle dependency)
+        status_text.text("🎨 Generating Animated Video Captions...")
         progress_bar.progress(70)
-        
-        srt_lines = []
-        for idx, seg in enumerate(segments, 1):
+
+        color_map = {
+            "Yellow Highlight": "yellow",
+            "Neon Cyan": "cyan",
+            "Pure White": "white",
+            "Vibrant Green": "#00FF66",
+            "Hot Pink": "#FF1493"
+        }
+        chosen_color = color_map.get(primary_color, "yellow")
+
+        # Load Video Clip
+        video_clip = VideoFileClip(input_path)
+
+        # Apply Speed / Slowmo
+        if "0.75x" in slowmo_option:
+            video_clip = video_clip.fx(vfx.speedx, 0.75)
+        elif "0.5x" in slowmo_option:
+            video_clip = video_clip.fx(vfx.speedx, 0.5)
+
+        # Create Text Overlay Clips
+        subtitle_clips = []
+        pos_y = 0.8 if position == "Bottom" else (0.5 if position == "Middle" else 0.15)
+
+        for seg in segments:
             raw_text = seg.get('text', '').strip()
             if "Hinglish" in lang_mode:
-                display_text = devanagari_to_hinglish(raw_text)
+                text_to_show = devanagari_to_hinglish(raw_text)
             elif "Pure Hindi" in lang_mode:
-                display_text = raw_text
+                text_to_show = raw_text
             else:
-                display_text = raw_text.upper()
-                
-            srt_lines.append(f"{idx}")
-            srt_lines.append(f"{format_timestamp_srt(seg['start'])} --> {format_timestamp_srt(seg['end'])}")
-            srt_lines.append(f"{display_text}\n")
+                text_to_show = raw_text.upper()
 
-        with open(srt_path, "w", encoding="utf-8") as f:
-            f.write("\n".join(srt_lines))
+            duration = max(0.4, seg['end'] - seg['start'])
+            
+            try:
+                txt_clip = (
+                    TextClip(
+                        text_to_show,
+                        fontsize=font_size,
+                        color=chosen_color,
+                        stroke_color='black',
+                        stroke_width=3,
+                        font='DejaVu-Sans-Bold'
+                    )
+                    .set_position(('center', pos_y), relative=True)
+                    .set_start(seg['start'])
+                    .set_duration(duration)
+                )
+                subtitle_clips.append(txt_clip)
+            except Exception:
+                # Fallback if specific font name differs
+                txt_clip = (
+                    TextClip(
+                        text_to_show,
+                        fontsize=font_size,
+                        color=chosen_color,
+                        stroke_color='black',
+                        stroke_width=3
+                    )
+                    .set_position(('center', pos_y), relative=True)
+                    .set_start(seg['start'])
+                    .set_duration(duration)
+                )
+                subtitle_clips.append(txt_clip)
 
-        # 4. Bulletproof Video Merge via SRT Filter
-        status_text.text("⚡ Burning Subtitles onto Video...")
-        progress_bar.progress(85)
+        final_clip = CompositeVideoClip([video_clip] + subtitle_clips)
+
+        # 4. Export Video
+        status_text.text("⚡ Finalizing & Rendering Reel...")
+        progress_bar.progress(90)
         
-        # Color mapping in ASS/SRT hex (BGR format)
-        colors_map = {
-            "Yellow Highlight": "&H0000FFFF",
-            "Neon Cyan": "&H00FFFF00",
-            "Pure White": "&H00FFFFFF",
-            "Vibrant Green": "&H0000FF00",
-            "Hot Pink": "&H00B400FF"
-        }
-        hex_c = colors_map.get(primary_color, "&H0000FFFF")
-        align_code = 2 if position == "Bottom" else (5 if position == "Middle" else 8)
-        font_style = f"force_style='FontSize={font_size},PrimaryColour={hex_c},OutlineColour=&H00000000,BorderStyle=1,Outline=3,Shadow=2,Alignment={align_code},MarginV=50'"
+        final_clip.write_videofile(
+            output_path,
+            codec='libx264',
+            audio_codec='aac',
+            preset='ultrafast',
+            threads=2,
+            logger=None
+        )
 
-        vf_list = []
-        if "0.75x" in slowmo_option:
-            vf_list.append("setpts=1.333*PTS")
-        elif "0.5x" in slowmo_option:
-            vf_list.append("setpts=2.0*PTS")
-
-        if enable_enhancer:
-            vf_list.append("unsharp=5:5:0.8:5:5:0.0,eq=contrast=1.08:saturation=1.15")
-
-        vf_list.append(f"subtitles={srt_path}:{font_style}")
-        vf_str = ",".join(vf_list)
-
-        cmd_render = f'ffmpeg -y -i {input_path} -vf "{vf_str}" -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac {output_path}'
-        res = subprocess.run(cmd_render, shell=True, capture_output=True, text=True)
-
-        # Fallback without subtitle styles if system fonts fail
-        if not os.path.exists(output_path) or os.path.getsize(output_path) < 1000:
-            cmd_fallback = f'ffmpeg -y -i {input_path} -vf "subtitles={srt_path}" -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac {output_path}'
-            subprocess.run(cmd_fallback, shell=True, capture_output=True)
+        video_clip.close()
+        final_clip.close()
 
         progress_bar.progress(100)
         status_text.empty()
@@ -302,10 +319,10 @@ if uploaded_file:
                     use_container_width=True
                 )
         else:
-            st.error("Rendering failed. Please retry.")
+            st.error("Rendering failed. Please try again.")
 
         # Cleanup
-        for p in [input_path, audio_path, srt_path, output_path]:
+        for p in [input_path, audio_path, output_path]:
             if os.path.exists(p):
                 try:
                     os.remove(p)
