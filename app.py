@@ -4,6 +4,10 @@ import subprocess
 import whisper
 import gc
 import re
+import torch
+
+# RAM Protection: Restrict threads to avoid memory spikes
+torch.set_num_threads(2)
 
 # ----------------- PAGE CONFIG -----------------
 st.set_page_config(
@@ -42,11 +46,6 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
-
-# ----------------- CACHED MODEL LOADER (10x FASTER) -----------------
-@st.cache_resource
-def load_whisper_model(model_size):
-    return whisper.load_model(model_size)
 
 # ----------------- ACCURATE HINGLISH TRANSLITERATOR -----------------
 def devanagari_to_hinglish(text: str) -> str:
@@ -189,7 +188,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 # ----------------- UI WORKSPACE -----------------
 st.title("🎬 CaptionVFX AI Studio Pro")
-st.caption("Ultra-Fast AI Subtitles • Hinglish Romanizer • 4K Visual Boost")
+st.caption("RAM-Optimized Subtitles • Hinglish Romanizer • 4K Visual Boost")
 
 uploaded_file = st.file_uploader("📤 Upload Video (MP4/MOV)", type=["mp4", "mov"])
 
@@ -203,8 +202,8 @@ if uploaded_file:
         st.video("temp_input.mp4")
         st.markdown("""
         <div class="metric-card">
-            ⚡ <b>Speed Engine:</b> Turbo Fast AI Cache<br>
-            🎯 <b>Format:</b> 1080x1920 (Reels / Shorts)
+            ⚡ <b>Resource Guard:</b> Active (Safe Low-Memory Engine)<br>
+            🎯 <b>Output:</b> 1080x1920 (Reels & Shorts)
         </div>
         """, unsafe_allow_html=True)
 
@@ -227,7 +226,7 @@ if uploaded_file:
         with c2:
             position = st.selectbox("📍 Subtitle Position", ["Bottom", "Middle", "Top"])
             font_size = st.slider("🔤 Font Size", 20, 56, 36)
-            whisper_model_choice = st.selectbox("⚡ Processing Speed", ["base (Fast & Accurate)", "tiny (Ultra Fast 5s)", "small (Max Accuracy)"])
+            whisper_model_choice = st.selectbox("⚡ AI Engine", ["tiny (Fast & RAM Safe)", "base (Balanced)"])
 
         st.markdown("---")
         st.subheader("🚀 Video Enhancements")
@@ -241,19 +240,19 @@ if uploaded_file:
         progress_bar = st.progress(0)
         status_text = st.empty()
 
-        # 1. Fast Audio Extraction
+        # 1. Clean Audio Extraction
         status_text.text("🎙️ Extracting Voice...")
         progress_bar.progress(25)
         cmd_extract = "ffmpeg -y -i temp_input.mp4 -vn -acodec pcm_s16le -ar 16000 -ac 1 temp_audio.wav"
         subprocess.run(cmd_extract, shell=True, capture_output=True)
 
-        # 2. Fast Cached Whisper Run
-        status_text.text("🤖 Generating AI Subtitles (Turbo)...")
+        # 2. RAM-Safe Whisper Run
+        status_text.text("🤖 Transcribing Voice...")
         progress_bar.progress(50)
         selected_model_name = whisper_model_choice.split()[0]
-        model = load_whisper_model(selected_model_name)
         
-        hindi_prompt = "नमस्ते, यह साफ हिंदी और हिंग्लिश में बातचीत है।"
+        model = whisper.load_model(selected_model_name, device="cpu")
+        hindi_prompt = "नमस्ते, यह हिंदी और हिंग्लिश में बातचीत है।"
         
         transcription = model.transcribe(
             "temp_audio.wav",
@@ -263,6 +262,10 @@ if uploaded_file:
             temperature=0.0,
             fp16=False
         )
+
+        # Immediate Memory Purge to prevent Resource Crash
+        del model
+        gc.collect()
 
         # 3. Fast ASS File Generation
         status_text.text("🎨 Styling Subtitles...")
@@ -306,22 +309,22 @@ if uploaded_file:
         progress_bar.progress(100)
         status_text.empty()
 
-        # 5. Instant Display & Download
+        # 5. Output Video Display & Download
         if os.path.exists("output.mp4") and os.path.getsize("output.mp4") > 1000:
-            st.success("⚡ Ready in Record Time!")
+            st.success("✅ Subtitled Reel Ready!")
             with open("output.mp4", "rb") as vid_file:
                 video_bytes = vid_file.read()
                 st.video(video_bytes)
                 st.download_button(
                     label="📥 Download Subtitled Reel (MP4)",
                     data=video_bytes,
-                    file_name="viral_fast_reel.mp4",
+                    file_name="viral_caption_reel.mp4",
                     mime="video/mp4",
                     use_container_width=True
                 )
         else:
-            st.error("Rendering issue. Please try again.")
+            st.error("Rendering failed. Please try again.")
 
         cleanup_files(["temp_input.mp4", "temp_audio.wav", "subtitles.ass", "output.mp4"])
         gc.collect()
-        
+              
