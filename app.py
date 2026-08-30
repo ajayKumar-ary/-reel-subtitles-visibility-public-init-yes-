@@ -5,7 +5,6 @@ import requests
 import json
 import gc
 import re
-from moviepy.editor import VideoFileClip, TextClip, CompositeVideoClip, vfx
 
 # ----------------- PAGE CONFIG -----------------
 st.set_page_config(
@@ -106,7 +105,7 @@ def devanagari_to_hinglish(text: str) -> str:
 
 # ----------------- UI WORKSPACE -----------------
 st.title("🎬 CaptionVFX AI Studio Pro")
-st.caption("Cloud AI Subtitles • MoviePy Pure Render • Hinglish Auto-Romanize • 4K Visual Boost")
+st.caption("Zero-Crash Cloud AI • Instant Subtitles • Hinglish Auto-Romanize • 4K Boost")
 
 hf_token = st.secrets.get("HF_TOKEN", "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")
 
@@ -120,13 +119,16 @@ if uploaded_file:
     with open(input_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
 
-    # Get Duration safely with MoviePy
+    # Get Duration safely
+    video_duration = 10.0
     try:
-        temp_clip = VideoFileClip(input_path)
-        video_duration = temp_clip.duration
-        temp_clip.close()
+        dur_cmd = f'ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 {input_path}'
+        dur_proc = subprocess.run(dur_cmd, shell=True, capture_output=True, text=True)
+        val = float(dur_proc.stdout.strip())
+        if val > 0:
+            video_duration = val
     except:
-        video_duration = 10.0
+        pass
 
     col_preview, col_settings = st.columns([1, 1.2])
 
@@ -157,7 +159,7 @@ if uploaded_file:
         
         with c2:
             position = st.selectbox("📍 Subtitle Position", ["Bottom", "Middle", "Top"])
-            font_size = st.slider("🔤 Font Size", 24, 60, 40)
+            font_size = st.slider("🔤 Font Size", 24, 60, 42)
 
         st.markdown("---")
         st.subheader("🚀 Video Enhancements")
@@ -173,13 +175,13 @@ if uploaded_file:
 
         # 1. Clean Audio Extraction
         status_text.text("🎙️ Extracting Clean Audio...")
-        progress_bar.progress(20)
+        progress_bar.progress(25)
         cmd_extract = f"ffmpeg -y -i {input_path} -vn -acodec pcm_s16le -ar 16000 -ac 1 {audio_path}"
         subprocess.run(cmd_extract, shell=True, capture_output=True)
 
-        # 2. Hugging Face Cloud Transcription
+        # 2. Cloud AI Whisper Call
         status_text.text("🤖 Transcribing Voice with AI...")
-        progress_bar.progress(45)
+        progress_bar.progress(50)
         
         segments = []
         API_URL = "https://router.huggingface.co/hf-inference/models/openai/whisper-large-v3"
@@ -216,32 +218,26 @@ if uploaded_file:
                 {'start': video_duration/2, 'end': video_duration, 'text': 'FOLLOW FOR MORE'}
             ]
 
-        # 3. MoviePy Direct Video Composition (Zero FFmpeg subtitle dependency)
-        status_text.text("🎨 Generating Animated Video Captions...")
-        progress_bar.progress(70)
+        # 3. Build Direct Drawtext Filters
+        status_text.text("🎨 Burning Subtitles onto Frames...")
+        progress_bar.progress(75)
 
+        # Find font path
+        font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+        if not os.path.exists(font_path):
+            font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+
+        y_pos = "150" if position == "Top" else ("(h-text_h)/2" if position == "Middle" else "h-text_h-180")
         color_map = {
             "Yellow Highlight": "yellow",
             "Neon Cyan": "cyan",
             "Pure White": "white",
-            "Vibrant Green": "#00FF66",
-            "Hot Pink": "#FF1493"
+            "Vibrant Green": "0x00FF66",
+            "Hot Pink": "0xFF1493"
         }
-        chosen_color = color_map.get(primary_color, "yellow")
+        font_color = color_map.get(primary_color, "yellow")
 
-        # Load Video Clip
-        video_clip = VideoFileClip(input_path)
-
-        # Apply Speed / Slowmo
-        if "0.75x" in slowmo_option:
-            video_clip = video_clip.fx(vfx.speedx, 0.75)
-        elif "0.5x" in slowmo_option:
-            video_clip = video_clip.fx(vfx.speedx, 0.5)
-
-        # Create Text Overlay Clips
-        subtitle_clips = []
-        pos_y = 0.8 if position == "Bottom" else (0.5 if position == "Middle" else 0.15)
-
+        draw_filters = []
         for seg in segments:
             raw_text = seg.get('text', '').strip()
             if "Hinglish" in lang_mode:
@@ -251,56 +247,36 @@ if uploaded_file:
             else:
                 text_to_show = raw_text.upper()
 
-            duration = max(0.4, seg['end'] - seg['start'])
+            # Clean text for FFmpeg
+            clean_text = re.sub(r"[^a-zA-Z0-9\s\u0900-\u097F]", "", text_to_show)
+            st_t = f"{seg['start']:.2f}"
+            en_t = f"{seg['end']:.2f}"
+
+            if os.path.exists(font_path):
+                filter_item = f"drawtext=fontfile='{font_path}':text='{clean_text}':fontsize={font_size}:fontcolor={font_color}:borderw=4:bordercolor=black:x=(w-text_w)/2:y={y_pos}:enable='between(t,{st_t},{en_t})'"
+            else:
+                filter_item = f"drawtext=text='{clean_text}':fontsize={font_size}:fontcolor={font_color}:borderw=4:bordercolor=black:x=(w-text_w)/2:y={y_pos}:enable='between(t,{st_t},{en_t})'"
             
-            try:
-                txt_clip = (
-                    TextClip(
-                        text_to_show,
-                        fontsize=font_size,
-                        color=chosen_color,
-                        stroke_color='black',
-                        stroke_width=3,
-                        font='DejaVu-Sans-Bold'
-                    )
-                    .set_position(('center', pos_y), relative=True)
-                    .set_start(seg['start'])
-                    .set_duration(duration)
-                )
-                subtitle_clips.append(txt_clip)
-            except Exception:
-                # Fallback if specific font name differs
-                txt_clip = (
-                    TextClip(
-                        text_to_show,
-                        fontsize=font_size,
-                        color=chosen_color,
-                        stroke_color='black',
-                        stroke_width=3
-                    )
-                    .set_position(('center', pos_y), relative=True)
-                    .set_start(seg['start'])
-                    .set_duration(duration)
-                )
-                subtitle_clips.append(txt_clip)
+            draw_filters.append(filter_item)
 
-        final_clip = CompositeVideoClip([video_clip] + subtitle_clips)
+        vf_all = []
+        if "0.75x" in slowmo_option:
+            vf_all.append("setpts=1.333*PTS")
+        elif "0.5x" in slowmo_option:
+            vf_all.append("setpts=2.0*PTS")
 
-        # 4. Export Video
+        if enable_enhancer:
+            vf_all.append("unsharp=5:5:0.8:5:5:0.0,eq=contrast=1.08:saturation=1.15")
+
+        vf_all.extend(draw_filters)
+        vf_string = ",".join(vf_all)
+
+        # 4. Fast FFmpeg Direct Execution
         status_text.text("⚡ Finalizing & Rendering Reel...")
         progress_bar.progress(90)
         
-        final_clip.write_videofile(
-            output_path,
-            codec='libx264',
-            audio_codec='aac',
-            preset='ultrafast',
-            threads=2,
-            logger=None
-        )
-
-        video_clip.close()
-        final_clip.close()
+        cmd_render = f'ffmpeg -y -i {input_path} -vf "{vf_string}" -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac {output_path}'
+        subprocess.run(cmd_render, shell=True, capture_output=True)
 
         progress_bar.progress(100)
         status_text.empty()
@@ -319,7 +295,7 @@ if uploaded_file:
                     use_container_width=True
                 )
         else:
-            st.error("Rendering failed. Please try again.")
+            st.error("Rendering failed. Please retry.")
 
         # Cleanup
         for p in [input_path, audio_path, output_path]:
