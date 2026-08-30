@@ -1,8 +1,7 @@
 import streamlit as st
 import os
 import subprocess
-import requests
-import json
+import speech_recognition as sr
 import gc
 import re
 
@@ -185,7 +184,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 # ----------------- UI WORKSPACE -----------------
 st.title("🎬 CaptionVFX AI Studio Pro")
-st.caption("Zero-Lag Cloud AI • Hinglish Romanizer • VFX Pop Animations • 4K Boost")
+st.caption("Fast Subtitles • Hinglish Transliteration • VFX Pop Animations • 4K Visual Boost")
 
 uploaded_file = st.file_uploader("📤 Upload Video (MP4/MOV)", type=["mp4", "mov"])
 
@@ -193,13 +192,13 @@ if uploaded_file:
     with open("temp_input.mp4", "wb") as f:
         f.write(uploaded_file.getbuffer())
 
-    # Get total video duration using ffprobe
-    dur_cmd = "ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 temp_input.mp4"
-    try:
-        dur_res = subprocess.run(dur_cmd, shell=True, capture_output=True, text=True)
-        video_duration = float(dur_res.stdout.strip())
-    except:
-        video_duration = 10.0
+    # Calculate video duration safely
+    dur_cmd = "ffmpeg -i temp_input.mp4 2>&1 | grep Duration"
+    dur_proc = subprocess.run(dur_cmd, shell=True, capture_output=True, text=True)
+    video_duration = 10.0
+    match = re.search(r'Duration:\s*(\d+):(\d+):(\d+\.\d+)', dur_proc.stdout)
+    if match:
+        video_duration = int(match.group(1))*3600 + int(match.group(2))*60 + float(match.group(3))
 
     col_preview, col_settings = st.columns([1, 1.2])
 
@@ -207,7 +206,7 @@ if uploaded_file:
         st.video("temp_input.mp4")
         st.markdown(f"""
         <div class="metric-card">
-            ⚡ <b>Cloud AI Engine:</b> Active & Fast<br>
+            ⚡ <b>AI Engine:</b> High-Speed Cloud Voice AI<br>
             ⏱️ <b>Duration:</b> {video_duration:.1f}s | 🎯 1080x1920 Ready
         </div>
         """, unsafe_allow_html=True)
@@ -244,32 +243,26 @@ if uploaded_file:
         progress_bar = st.progress(0)
         status_text = st.empty()
 
-        # 1. Audio Extraction
-        status_text.text("🎙️ Extracting Clean Audio...")
+        # 1. Clean Audio Extraction
+        status_text.text("🎙️ Extracting Audio...")
         progress_bar.progress(25)
         cmd_extract = "ffmpeg -y -i temp_input.mp4 -vn -acodec pcm_s16le -ar 16000 -ac 1 temp_audio.wav"
         subprocess.run(cmd_extract, shell=True, capture_output=True)
 
-        # 2. Fast Cloud AI Transcription
-        status_text.text("🤖 Transcribing with Cloud AI Engine...")
-        progress_bar.progress(55)
-
+        # 2. High-Accuracy Speech Recognition
+        status_text.text("🤖 Transcribing Voice with AI...")
+        progress_bar.progress(50)
+        
         segments = []
+        r = sr.Recognizer()
         try:
-            # Free High-Speed HuggingFace Inference API
-            API_URL = "https://api-inference.huggingface.co/models/openai/whisper-base"
-            with open("temp_audio.wav", "rb") as f:
-                data = f.read()
-            
-            headers = {"Content-Type": "audio/wav"}
-            response = requests.post(API_URL, headers=headers, data=data, timeout=30)
-            result = response.json()
-            
-            if "text" in result and result["text"].strip():
-                full_text = result["text"].strip()
-                # Segment auto-divider based on timing
+            with sr.AudioFile("temp_audio.wav") as source:
+                audio_data = r.record(source)
+                speech_lang = "en-US" if "English" in lang_mode else "hi-IN"
+                full_text = r.recognize_google(audio_data, language=speech_lang)
+                
                 words = full_text.split()
-                chunk_size = 4
+                chunk_size = 3
                 word_chunks = [words[i:i + chunk_size] for i in range(0, len(words), chunk_size)]
                 time_per_chunk = video_duration / max(1, len(word_chunks))
                 
@@ -281,19 +274,16 @@ if uploaded_file:
                         'end': en_time,
                         'text': " ".join(chunk)
                     })
-        except Exception as e:
-            segments = []
-
-        # Fallback if cloud API is busy: generate clean placeholder
-        if not segments:
+        except Exception:
+            # Fallback text if audio is silent
             segments = [
                 {'start': 0.0, 'end': video_duration/2, 'text': 'YEH HAI VIRAL REEL'},
                 {'start': video_duration/2, 'end': video_duration, 'text': 'FOLLOW FOR MORE'}
             ]
 
         # 3. Generate Subtitles ASS
-        status_text.text("🎨 Styling Subtitle Animations...")
-        progress_bar.progress(75)
+        status_text.text("🎨 Styling Subtitles...")
+        progress_bar.progress(70)
         ass_content = generate_ass_subtitles(
             segments,
             preset_style,
@@ -305,9 +295,9 @@ if uploaded_file:
         with open("subtitles.ass", "w", encoding="utf-8") as f:
             f.write(ass_content)
 
-        # 4. FFmpeg Video Merge
+        # 4. FFmpeg Video Merge (Safe Subtitles Filter)
         status_text.text("⚡ Final Fast Merge...")
-        progress_bar.progress(90)
+        progress_bar.progress(85)
         
         vf_filters = []
         af_filters = []
@@ -322,13 +312,18 @@ if uploaded_file:
         if enable_enhancer:
             vf_filters.append("unsharp=5:5:0.8:5:5:0.0,eq=contrast=1.08:saturation=1.15")
 
-        vf_filters.append("ass=subtitles.ass")
+        vf_filters.append("subtitles=subtitles.ass")
         
         vf_str = ",".join(vf_filters)
         af_str = f'-af "{",".join(af_filters)}"' if af_filters else "-c:a copy"
 
         cmd_render = f'ffmpeg -y -i temp_input.mp4 -vf "{vf_str}" {af_str} -c:v libx264 -preset ultrafast -pix_fmt yuv420p output.mp4'
-        subprocess.run(cmd_render, shell=True, capture_output=True)
+        res = subprocess.run(cmd_render, shell=True, capture_output=True, text=True)
+
+        # Fallback render if subtitle filter has permission issue
+        if not os.path.exists("output.mp4") or os.path.getsize("output.mp4") < 1000:
+            cmd_fallback = f'ffmpeg -y -i temp_input.mp4 -vf "ass=subtitles.ass" -c:a aac -c:v libx264 -preset ultrafast output.mp4'
+            subprocess.run(cmd_fallback, shell=True, capture_output=True)
 
         progress_bar.progress(100)
         status_text.empty()
@@ -347,8 +342,8 @@ if uploaded_file:
                     use_container_width=True
                 )
         else:
-            st.error("Rendering issue. Please try again.")
+            st.error("Rendering failed. Please check logs.")
 
         cleanup_files(["temp_input.mp4", "temp_audio.wav", "subtitles.ass", "output.mp4"])
         gc.collect()
-            
+        
