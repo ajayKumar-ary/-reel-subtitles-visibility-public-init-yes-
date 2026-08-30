@@ -103,23 +103,35 @@ def devanagari_to_hinglish(text: str) -> str:
 
     return " ".join(output_words)
 
+def format_timestamp_srt(seconds: float) -> str:
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    milli = int((seconds - int(seconds)) * 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{milli:03d}"
+
 # ----------------- UI WORKSPACE -----------------
 st.title("🎬 CaptionVFX AI Studio Pro")
-st.caption("Zero-Crash Cloud AI • Instant Subtitles • Hinglish Auto-Romanize • 4K Boost")
+st.caption("Cloud AI Subtitles • Hinglish Auto-Romanize • VFX Pop Animations • 4K Boost")
 
 hf_token = st.secrets.get("HF_TOKEN", "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")
 
 uploaded_file = st.file_uploader("📤 Upload Video (MP4/MOV)", type=["mp4", "mov"])
 
 if uploaded_file:
-    input_path = "/tmp/in_video.mp4"
-    audio_path = "/tmp/in_audio.wav"
-    output_path = "/tmp/out_video.mp4"
+    # Safe working paths
+    work_dir = "/tmp/caption_job"
+    os.makedirs(work_dir, exist_ok=True)
+
+    input_path = os.path.join(work_dir, "input.mp4")
+    audio_path = os.path.join(work_dir, "audio.wav")
+    srt_path = os.path.join(work_dir, "sub.srt")
+    output_path = os.path.join(work_dir, "output.mp4")
 
     with open(input_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
 
-    # Get Duration safely
+    # Get Duration
     video_duration = 10.0
     try:
         dur_cmd = f'ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 {input_path}'
@@ -159,7 +171,7 @@ if uploaded_file:
         
         with c2:
             position = st.selectbox("📍 Subtitle Position", ["Bottom", "Middle", "Top"])
-            font_size = st.slider("🔤 Font Size", 24, 60, 42)
+            font_size = st.slider("🔤 Font Size", 20, 56, 36)
 
         st.markdown("---")
         st.subheader("🚀 Video Enhancements")
@@ -180,7 +192,7 @@ if uploaded_file:
         subprocess.run(cmd_extract, shell=True, capture_output=True)
 
         # 2. Cloud AI Whisper Call
-        status_text.text("🤖 Transcribing Voice with AI...")
+        status_text.text("🤖 Transcribing Voice with HuggingFace AI...")
         progress_bar.progress(50)
         
         segments = []
@@ -218,65 +230,68 @@ if uploaded_file:
                 {'start': video_duration/2, 'end': video_duration, 'text': 'FOLLOW FOR MORE'}
             ]
 
-        # 3. Build Direct Drawtext Filters
-        status_text.text("🎨 Burning Subtitles onto Frames...")
-        progress_bar.progress(75)
-
-        # Find font path
-        font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-        if not os.path.exists(font_path):
-            font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-
-        y_pos = "150" if position == "Top" else ("(h-text_h)/2" if position == "Middle" else "h-text_h-180")
-        color_map = {
-            "Yellow Highlight": "yellow",
-            "Neon Cyan": "cyan",
-            "Pure White": "white",
-            "Vibrant Green": "0x00FF66",
-            "Hot Pink": "0xFF1493"
-        }
-        font_color = color_map.get(primary_color, "yellow")
-
-        draw_filters = []
-        for seg in segments:
+        # 3. Create Standard SRT File
+        status_text.text("🎨 Formatting Subtitle Track...")
+        progress_bar.progress(70)
+        
+        srt_lines = []
+        for idx, seg in enumerate(segments, 1):
             raw_text = seg.get('text', '').strip()
             if "Hinglish" in lang_mode:
-                text_to_show = devanagari_to_hinglish(raw_text)
+                display_text = devanagari_to_hinglish(raw_text)
             elif "Pure Hindi" in lang_mode:
-                text_to_show = raw_text
+                display_text = raw_text
             else:
-                text_to_show = raw_text.upper()
+                display_text = raw_text.upper()
+                
+            srt_lines.append(f"{idx}")
+            srt_lines.append(f"{format_timestamp_srt(seg['start'])} --> {format_timestamp_srt(seg['end'])}")
+            srt_lines.append(f"{display_text}\n")
 
-            # Clean text for FFmpeg
-            clean_text = re.sub(r"[^a-zA-Z0-9\s\u0900-\u097F]", "", text_to_show)
-            st_t = f"{seg['start']:.2f}"
-            en_t = f"{seg['end']:.2f}"
+        with open(srt_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(srt_lines))
 
-            if os.path.exists(font_path):
-                filter_item = f"drawtext=fontfile='{font_path}':text='{clean_text}':fontsize={font_size}:fontcolor={font_color}:borderw=4:bordercolor=black:x=(w-text_w)/2:y={y_pos}:enable='between(t,{st_t},{en_t})'"
-            else:
-                filter_item = f"drawtext=text='{clean_text}':fontsize={font_size}:fontcolor={font_color}:borderw=4:bordercolor=black:x=(w-text_w)/2:y={y_pos}:enable='between(t,{st_t},{en_t})'"
-            
-            draw_filters.append(filter_item)
+        # 4. Burn Subtitles via FFmpeg SRT engine
+        status_text.text("⚡ Burning Subtitles onto Video...")
+        progress_bar.progress(85)
+        
+        colors_map = {
+            "Yellow Highlight": "&H0000FFFF",
+            "Neon Cyan": "&H00FFFF00",
+            "Pure White": "&H00FFFFFF",
+            "Vibrant Green": "&H0000FF00",
+            "Hot Pink": "&H00B400FF"
+        }
+        hex_c = colors_map.get(primary_color, "&H0000FFFF")
+        align_code = 2 if position == "Bottom" else (5 if position == "Middle" else 8)
+        
+        vf_filters = []
+        af_filters = []
 
-        vf_all = []
         if "0.75x" in slowmo_option:
-            vf_all.append("setpts=1.333*PTS")
+            vf_filters.append("setpts=1.333*PTS")
+            af_filters.append("atempo=0.75")
         elif "0.5x" in slowmo_option:
-            vf_all.append("setpts=2.0*PTS")
+            vf_filters.append("setpts=2.0*PTS")
+            af_filters.append("atempo=0.5")
 
         if enable_enhancer:
-            vf_all.append("unsharp=5:5:0.8:5:5:0.0,eq=contrast=1.08:saturation=1.15")
+            vf_filters.append("unsharp=5:5:0.8:5:5:0.0,eq=contrast=1.08:saturation=1.15")
 
-        vf_all.extend(draw_filters)
-        vf_string = ",".join(vf_all)
+        # Escaped subtitle filter syntax
+        sub_filter = f"subtitles='{srt_path}':force_style='FontSize={font_size},PrimaryColour={hex_c},OutlineColour=&H00000000,BorderStyle=1,Outline=3,Shadow=2,Alignment={align_code},MarginV=50'"
+        vf_filters.append(sub_filter)
 
-        # 4. Fast FFmpeg Direct Execution
-        status_text.text("⚡ Finalizing & Rendering Reel...")
-        progress_bar.progress(90)
-        
-        cmd_render = f'ffmpeg -y -i {input_path} -vf "{vf_string}" -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac {output_path}'
-        subprocess.run(cmd_render, shell=True, capture_output=True)
+        vf_str = ",".join(vf_filters)
+        af_str = f'-af "{",".join(af_filters)}"' if af_filters else ""
+
+        cmd_render = f'ffmpeg -y -i "{input_path}" -vf "{vf_str}" {af_str} -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac "{output_path}"'
+        render_proc = subprocess.run(cmd_render, shell=True, capture_output=True, text=True)
+
+        # Fallback if styling fails
+        if not os.path.exists(output_path) or os.path.getsize(output_path) < 1000:
+            cmd_fallback = f'ffmpeg -y -i "{input_path}" -vf "subtitles=\'{srt_path}\'" -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac "{output_path}"'
+            render_proc = subprocess.run(cmd_fallback, shell=True, capture_output=True, text=True)
 
         progress_bar.progress(100)
         status_text.empty()
@@ -295,14 +310,7 @@ if uploaded_file:
                     use_container_width=True
                 )
         else:
-            st.error("Rendering failed. Please retry.")
+            st.error(f"Rendering failed: {render_proc.stderr[-300:] if render_proc.stderr else 'Unknown Error'}")
 
-        # Cleanup
-        for p in [input_path, audio_path, output_path]:
-            if os.path.exists(p):
-                try:
-                    os.remove(p)
-                except:
-                    pass
         gc.collect()
-        
+                      
