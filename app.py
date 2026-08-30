@@ -5,7 +5,6 @@ import requests
 import json
 import gc
 import re
-import io
 import imageio_ffmpeg
 import speech_recognition as sr
 from PIL import Image, ImageDraw, ImageFont
@@ -50,24 +49,24 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ----------------- HIGH-QUALITY FONT FETCHER -----------------
-@st.cache_resource
-def load_hd_font_bytes():
-    # Fetch clean standard Open-Source Bold Font into memory
-    urls = [
-        "https://cdn.jsdelivr.net/gh/google/fonts/ofl/montserrat/Montserrat-Black.ttf",
-        "https://cdn.jsdelivr.net/gh/google/fonts/apache/roboto/Roboto-Black.ttf"
+# ----------------- BULLETPROOF LOCAL FONT LOADER -----------------
+def get_font_handle(size_px):
+    font_candidates = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
     ]
-    for url in urls:
-        try:
-            res = requests.get(url, timeout=6)
-            if res.status_code == 200 and len(res.content) > 10000:
-                return res.content
-        except Exception:
-            continue
-    return None
-
-FONT_BYTES = load_hd_font_bytes()
+    for p in font_candidates:
+        if os.path.exists(p):
+            try:
+                return ImageFont.truetype(p, size_px)
+            except Exception:
+                pass
+    try:
+        return ImageFont.truetype("DejaVuSans-Bold.ttf", size_px)
+    except Exception:
+        return ImageFont.load_default()
 
 # ----------------- ACCURATE HINGLISH TRANSLITERATOR -----------------
 def devanagari_to_hinglish(text: str) -> str:
@@ -84,7 +83,7 @@ def devanagari_to_hinglish(text: str) -> str:
         'क': 'k', 'ख': 'kh', 'ग': 'g', 'घ': 'gh', 'ङ': 'ng',
         'च': 'ch', 'छ': 'chh', 'ज': 'j', 'झ': 'jh', 'ञ': 'ny',
         'ट': 't', 'ठ': 'th', 'ड': 'd', 'ढ': 'dh', 'ण': 'n',
-        'त': 't', 'थ': 'th', 'द': 'd', 'ध': 'dh', 'न': 'n',
+        'त': 't', 'थ': 'th', 'द': 'd', 'dh': 'dh', 'न': 'n',
         'प': 'p', 'फ': 'ph', 'ब': 'b', 'भ': 'bh', 'म': 'm',
         'य': 'y', 'र': 'r', 'ल': 'l', 'व': 'v', 'श': 'sh',
         'ष': 'sh', 'स': 's', 'ह': 'h', 'ड़': 'd', 'ढ़': 'dh',
@@ -128,25 +127,21 @@ def devanagari_to_hinglish(text: str) -> str:
 
     return " ".join(output_words)
 
-# ----------------- CLEAN HD CAPCUT/HORMOZI OVERLAY ENGINE -----------------
-def create_subtitle_overlays(segments, position, color_name, style_mode, vw, vh, out_dir):
+# ----------------- BIG AESTHETIC OVERLAY ENGINE -----------------
+def create_subtitle_overlays(segments, position, color_name, font_scale_val, vw, vh, out_dir):
     color_dict = {
-        "Hormozi Yellow": (255, 225, 0),
+        "Hormozi Yellow": (255, 230, 0),
         "Neon Cyan": (0, 245, 255),
         "Pure White": (255, 255, 255),
         "Emerald Green": (0, 255, 128),
-        "Hot Pink": (255, 45, 150)
+        "Hot Pink": (255, 20, 147)
     }
-    fill_col = color_dict.get(color_name, (255, 225, 0))
+    fill_col = color_dict.get(color_name, (255, 230, 0))
     os.makedirs(out_dir, exist_ok=True)
 
-    # Calculate optimal font size relative to video width (Around 6-7% of screen width)
-    font_size = max(36, int(vw * 0.068))
-    
-    if FONT_BYTES:
-        font = ImageFont.truetype(io.BytesIO(FONT_BYTES), font_size)
-    else:
-        font = ImageFont.load_default()
+    # Calculate actual font size: font_scale_val (e.g. 100 = 10% video width)
+    actual_font_size = max(40, int(vw * (font_scale_val / 1000.0)))
+    font = get_font_handle(actual_font_size)
 
     overlay_files = []
     for idx, seg in enumerate(segments):
@@ -158,32 +153,26 @@ def create_subtitle_overlays(segments, position, color_name, style_mode, vw, vh,
         text_w = bbox[2] - bbox[0]
         text_h = bbox[3] - bbox[1]
 
+        # Centered X position
         x = (vw - text_w) // 2
         
+        # Position mapping
         if position == "Top":
             y = int(vh * 0.16)
         elif position == "Middle":
             y = (vh - text_h) // 2
         else:
-            y = int(vh * 0.76)  # Perfect aesthetic lower third
+            y = int(vh * 0.74)  # Perfect aesthetic lower area
 
-        # Style Options:
-        if "Modern Pill Badge" in style_mode:
-            pad_x = int(vw * 0.035)
-            pad_y = int(vh * 0.012)
-            badge_rect = [x - pad_x, y - pad_y, x + text_w + pad_x, y + text_h + pad_y]
-            draw.rounded_rectangle(badge_rect, radius=int(vh*0.015), fill=(0, 0, 0, 195))
-            draw.text((x, y), text, font=font, fill=fill_col, stroke_width=2, stroke_fill=(0, 0, 0, 255))
-        else:
-            # Hormozi Viral Pop (Ultra clean: Heavy black stroke + Drop Shadow, No background box)
-            stroke_width = max(4, int(font_size * 0.12))
-            
-            # Subtle Drop Shadow
-            shadow_offset = max(3, int(font_size * 0.07))
-            draw.text((x + shadow_offset, y + shadow_offset), text, font=font, fill=(0, 0, 0, 180), stroke_width=stroke_width, stroke_fill=(0, 0, 0, 180))
-            
-            # Main Bold Text with clean black stroke
-            draw.text((x, y), text, font=font, fill=fill_col, stroke_width=stroke_width, stroke_fill=(0, 0, 0, 255))
+        # Viral thick black outline
+        stroke_val = max(5, int(actual_font_size * 0.14))
+        
+        # Shadow glow
+        s_off = max(3, int(actual_font_size * 0.06))
+        draw.text((x + s_off, y + s_off), text, font=font, fill=(0, 0, 0, 220), stroke_width=stroke_val, stroke_fill=(0, 0, 0, 220))
+        
+        # Crisp Main Text
+        draw.text((x, y), text, font=font, fill=fill_col, stroke_width=stroke_val, stroke_fill=(0, 0, 0, 255))
 
         filename = os.path.join(out_dir, f"sub_{idx}.png")
         img.save(filename, "PNG")
@@ -193,7 +182,7 @@ def create_subtitle_overlays(segments, position, color_name, style_mode, vw, vh,
 
 # ----------------- UI WORKSPACE -----------------
 st.title("🎬 CaptionVFX AI Studio Pro")
-st.caption("Aesthetic Viral Subtitles • CapCut & Hormozi Style • 4K Clean Visuals")
+st.caption("Bold Viral Subtitles • CapCut & Hormozi Aesthetic • Dynamic Scaling")
 
 uploaded_file = st.file_uploader("📤 Upload Video (MP4/MOV)", type=["mp4", "mov"])
 
@@ -234,8 +223,8 @@ if uploaded_file:
         st.video(input_path)
         st.markdown(f"""
         <div class="metric-card">
-            ⚡ <b>Canvas:</b> {vw}x{vh} HD<br>
-            ⏱️ <b>Duration:</b> {video_duration:.1f}s | Pro Auto-Sync
+            ⚡ <b>Resolution:</b> {vw}x{vh} Native<br>
+            ⏱️ <b>Duration:</b> {video_duration:.1f}s | Auto Speech Sync
         </div>
         """, unsafe_allow_html=True)
 
@@ -252,11 +241,11 @@ if uploaded_file:
                     "English"
                 ]
             )
-            style_mode = st.selectbox("✨ Typography VFX Style", ["Hormozi Clean Stroke (No Box)", "Modern Pill Badge (Clean Box)"])
             primary_color = st.selectbox("🎯 Highlight Color", ["Hormozi Yellow", "Neon Cyan", "Pure White", "Emerald Green", "Hot Pink"])
         
         with c2:
             position = st.selectbox("📍 Subtitle Position", ["Bottom", "Middle", "Top"])
+            font_scale = st.slider("🔤 Subtitle Size (Bada / Chota)", 60, 180, 120)
 
         custom_override = st.text_input("✍️ Manual Subtitle Override (Optional)", placeholder="Khaali chhoden agar auto audio detect chahiye")
 
@@ -264,8 +253,8 @@ if uploaded_file:
         progress_bar = st.progress(0)
         status_text = st.empty()
 
-        # 1. Clean Audio Track
-        status_text.text("🎙️ Extracting Clean Audio Track...")
+        # 1. Audio Extraction
+        status_text.text("🎙️ Extracting Audio...")
         progress_bar.progress(25)
         cmd_extract = f'"{FFMPEG_EXE}" -y -i "{input_path}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "{audio_path}"'
         subprocess.run(cmd_extract, shell=True, capture_output=True)
@@ -314,13 +303,13 @@ if uploaded_file:
                 {'start': video_duration/2, 'end': video_duration, 'text': 'VIRAL REEL'}
             ]
 
-        # 3. Clean HD Overlays
-        status_text.text("🎨 Generating Aesthetic HD Captions...")
+        # 3. Clean HD Large Overlays
+        status_text.text("🎨 Generating Large Aesthetic Captions...")
         progress_bar.progress(70)
-        overlays = create_subtitle_overlays(segments, position, primary_color, style_mode, vw, vh, overlays_dir)
+        overlays = create_subtitle_overlays(segments, position, primary_color, font_scale, vw, vh, overlays_dir)
 
         # 4. Multi-Overlay Filter Burn
-        status_text.text("⚡ Merging Crisp Subtitles...")
+        status_text.text("⚡ Merging Subtitles...")
         progress_bar.progress(85)
         
         input_args = [f'-i "{input_path}"']
@@ -344,7 +333,7 @@ if uploaded_file:
 
         # 5. Output Video Display & Download
         if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
-            st.success("✅ Aesthetic Subtitled Reel Ready!")
+            st.success("✅ Viral Subtitled Reel Ready!")
             with open(output_path, "rb") as vid_file:
                 video_bytes = vid_file.read()
                 st.video(video_bytes)
@@ -359,4 +348,4 @@ if uploaded_file:
             st.error("Render issue. Please try again.")
 
         gc.collect()
-            
+    
