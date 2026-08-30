@@ -5,6 +5,10 @@ import requests
 import json
 import gc
 import re
+import imageio_ffmpeg
+
+# Get direct path to bundled standalone ffmpeg executable
+FFMPEG_EXE = imageio_ffmpeg.get_ffmpeg_exe()
 
 # ----------------- PAGE CONFIG -----------------
 st.set_page_config(
@@ -119,7 +123,6 @@ hf_token = st.secrets.get("HF_TOKEN", "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")
 uploaded_file = st.file_uploader("📤 Upload Video (MP4/MOV)", type=["mp4", "mov"])
 
 if uploaded_file:
-    # Safe working paths
     work_dir = "/tmp/caption_job"
     os.makedirs(work_dir, exist_ok=True)
 
@@ -131,14 +134,14 @@ if uploaded_file:
     with open(input_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
 
-    # Get Duration
+    # Get Duration using bundled ffmpeg
     video_duration = 10.0
     try:
-        dur_cmd = f'ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 {input_path}'
+        dur_cmd = f'"{FFMPEG_EXE}" -i "{input_path}" 2>&1'
         dur_proc = subprocess.run(dur_cmd, shell=True, capture_output=True, text=True)
-        val = float(dur_proc.stdout.strip())
-        if val > 0:
-            video_duration = val
+        match = re.search(r'Duration:\s*(\d+):(\d+):(\d+\.\d+)', dur_proc.stdout + dur_proc.stderr)
+        if match:
+            video_duration = int(match.group(1))*3600 + int(match.group(2))*60 + float(match.group(3))
     except:
         pass
 
@@ -185,10 +188,10 @@ if uploaded_file:
         progress_bar = st.progress(0)
         status_text = st.empty()
 
-        # 1. Clean Audio Extraction
+        # 1. Clean Audio Extraction using Standalone FFmpeg
         status_text.text("🎙️ Extracting Clean Audio...")
         progress_bar.progress(25)
-        cmd_extract = f"ffmpeg -y -i {input_path} -vn -acodec pcm_s16le -ar 16000 -ac 1 {audio_path}"
+        cmd_extract = f'"{FFMPEG_EXE}" -y -i "{input_path}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "{audio_path}"'
         subprocess.run(cmd_extract, shell=True, capture_output=True)
 
         # 2. Cloud AI Whisper Call
@@ -251,7 +254,7 @@ if uploaded_file:
         with open(srt_path, "w", encoding="utf-8") as f:
             f.write("\n".join(srt_lines))
 
-        # 4. Burn Subtitles via FFmpeg SRT engine
+        # 4. Burn Subtitles via Standalone FFmpeg
         status_text.text("⚡ Burning Subtitles onto Video...")
         progress_bar.progress(85)
         
@@ -278,20 +281,14 @@ if uploaded_file:
         if enable_enhancer:
             vf_filters.append("unsharp=5:5:0.8:5:5:0.0,eq=contrast=1.08:saturation=1.15")
 
-        # Escaped subtitle filter syntax
         sub_filter = f"subtitles='{srt_path}':force_style='FontSize={font_size},PrimaryColour={hex_c},OutlineColour=&H00000000,BorderStyle=1,Outline=3,Shadow=2,Alignment={align_code},MarginV=50'"
         vf_filters.append(sub_filter)
 
         vf_str = ",".join(vf_filters)
         af_str = f'-af "{",".join(af_filters)}"' if af_filters else ""
 
-        cmd_render = f'ffmpeg -y -i "{input_path}" -vf "{vf_str}" {af_str} -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac "{output_path}"'
+        cmd_render = f'"{FFMPEG_EXE}" -y -i "{input_path}" -vf "{vf_str}" {af_str} -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac "{output_path}"'
         render_proc = subprocess.run(cmd_render, shell=True, capture_output=True, text=True)
-
-        # Fallback if styling fails
-        if not os.path.exists(output_path) or os.path.getsize(output_path) < 1000:
-            cmd_fallback = f'ffmpeg -y -i "{input_path}" -vf "subtitles=\'{srt_path}\'" -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac "{output_path}"'
-            render_proc = subprocess.run(cmd_fallback, shell=True, capture_output=True, text=True)
 
         progress_bar.progress(100)
         status_text.empty()
@@ -313,4 +310,4 @@ if uploaded_file:
             st.error(f"Rendering failed: {render_proc.stderr[-300:] if render_proc.stderr else 'Unknown Error'}")
 
         gc.collect()
-            
+        
