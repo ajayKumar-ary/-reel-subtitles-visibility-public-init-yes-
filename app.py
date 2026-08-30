@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import os
 import subprocess
 import requests
@@ -12,6 +13,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 FFMPEG_EXE = imageio_ffmpeg.get_ffmpeg_exe()
 
+# ----------------- PAGE CONFIG -----------------
 st.set_page_config(
     page_title="CaptionVFX AI Studio Pro",
     page_icon="🎬",
@@ -19,6 +21,34 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# ----------------- GOOGLE ADSENSE CODE INJECTION -----------------
+ADSENSE_CLIENT_ID = "ca-pub-7660812748780622"
+
+# 1. Verification Script for Google AdSense Crawler
+adsense_head_script = f"""
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={ADSENSE_CLIENT_ID}"
+     crossorigin="anonymous"></script>
+"""
+components.html(adsense_head_script, height=0, width=0)
+
+# 2. Reusable AdSense Banner Function
+def display_adsense_banner():
+    ad_html = f"""
+    <div style="display:flex; justify-content:center; align-items:center; margin:10px 0;">
+        <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={ADSENSE_CLIENT_ID}" crossorigin="anonymous"></script>
+        <ins class="adsbygoogle"
+             style="display:block; text-align:center;"
+             data-ad-client="{ADSENSE_CLIENT_ID}"
+             data-ad-format="auto"
+             data-full-width-responsive="true"></ins>
+        <script>
+             (adsbygoogle = window.adsbygoogle || []).push({{}});
+        </script>
+    </div>
+    """
+    components.html(ad_html, height=100)
+
+# ----------------- CUSTOM CSS -----------------
 st.markdown("""
 <style>
     .main { background-color: #0b0f19; color: #f8fafc; }
@@ -45,16 +75,19 @@ st.markdown("""
         padding: 15px;
         margin-bottom: 15px;
     }
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
+# ----------------- FONT LOADER -----------------
 def get_custom_font(size):
     font_file = "/tmp/caption_font.ttf"
     if not os.path.exists(font_file) or os.path.getsize(font_file) < 5000:
         urls = [
             "https://raw.githubusercontent.com/googlefonts/roboto/main/src/hinted/Roboto-Black.ttf",
-            "https://cdn.jsdelivr.net/gh/google/fonts/apache/roboto/Roboto-Black.ttf",
-            "https://cdnjs.cloudflare.com/ajax/libs/ink/3.1.10/fonts/Roboto/roboto-bold-webfont.ttf"
+            "https://cdn.jsdelivr.net/gh/google/fonts/apache/roboto/Roboto-Black.ttf"
         ]
         for u in urls:
             try:
@@ -81,6 +114,7 @@ def get_custom_font(size):
 
     return ImageFont.load_default(), False
 
+# ----------------- HINGLISH TRANSLITERATOR -----------------
 def devanagari_to_hinglish(text: str) -> str:
     matras = {
         'ा': 'a', 'ि': 'i', 'ी': 'ee', 'ु': 'u', 'ू': 'oo', 'ृ': 'ri',
@@ -139,6 +173,7 @@ def devanagari_to_hinglish(text: str) -> str:
 
     return " ".join(output_words)
 
+# ----------------- OVERLAY GENERATOR -----------------
 def create_subtitle_overlays(segments, position, color_name, preset_style, font_size_user, shadow_mode, stroke_mode, vw, vh, out_dir):
     color_dict = {
         "Yellow Highlight": (255, 230, 0),
@@ -242,8 +277,13 @@ def create_subtitle_overlays(segments, position, color_name, preset_style, font_
         
     return overlay_files
 
+# ----------------- UI WORKSPACE -----------------
 st.title("🎬 CaptionVFX AI Studio Pro")
 st.caption("Automatic Waveform Lip-Sync • 1/2/3-Liner Structure • Safe Area Fit")
+
+with st.sidebar:
+    st.markdown("### 📢 Sponsored")
+    display_adsense_banner()
 
 uploaded_file = st.file_uploader("📤 Upload Video (MP4/MOV)", type=["mp4", "mov"])
 
@@ -478,26 +518,4 @@ if uploaded_file:
         input_args_str = " ".join(input_args)
         af_str = f'-af "{",".join(af_filters)}"' if af_filters else ""
 
-        cmd_render = f'"{FFMPEG_EXE}" -y {input_args_str} -filter_complex "{filter_complex_str}" -map "[{last_v}]" -map 0:a? {af_str} -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac "{output_path}"'
-        subprocess.run(cmd_render, shell=True, capture_output=True)
-
-        progress_bar.progress(100)
-        status_text.empty()
-
-        if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
-            st.success("✅ Subtitles Synced Automatically!")
-            with open(output_path, "rb") as vid_file:
-                video_bytes = vid_file.read()
-                st.video(video_bytes)
-                st.download_button(
-                    label="📥 Download Subtitled Reel (MP4)",
-                    data=video_bytes,
-                    file_name="viral_caption_reel.mp4",
-                    mime="video/mp4",
-                    use_container_width=True
-                )
-        else:
-            st.error("Render issue. Please try again.")
-
-        gc.collect()
-        
+      
