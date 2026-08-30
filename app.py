@@ -107,11 +107,13 @@ def devanagari_to_hinglish(text: str) -> str:
 
     return " ".join(output_words)
 
+# ----------------- SAFE TIMESTAMP FORMATTER -----------------
 def format_timestamp_srt(seconds: float) -> str:
-    hours = int(seconds // 3600)
-    minutes = int((seconds % 3600) // 60)
-    secs = seconds % 60
-    milli = int((seconds - int(seconds)) * 1000)
+    total_ms = int(max(0.0, float(seconds)) * 1000)
+    hours = total_ms // 3600000
+    minutes = (total_ms % 3600000) // 60000
+    secs = (total_ms % 60000) // 1000
+    milli = total_ms % 1000
     return f"{hours:02d}:{minutes:02d}:{secs:02d},{milli:03d}"
 
 # ----------------- UI WORKSPACE -----------------
@@ -149,7 +151,7 @@ if uploaded_file:
         st.video(input_path)
         st.markdown(f"""
         <div class="metric-card">
-            ⚡ <b>Audio Engine:</b> High-Accuracy Multi-Voice AI<br>
+            ⚡ <b>Audio Engine:</b> High-Accuracy Speech AI<br>
             ⏱️ <b>Duration:</b> {video_duration:.1f}s | 🎯 1080x1920 Ready
         </div>
         """, unsafe_allow_html=True)
@@ -192,7 +194,7 @@ if uploaded_file:
         cmd_extract = f'"{FFMPEG_EXE}" -y -i "{input_path}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "{audio_path}"'
         subprocess.run(cmd_extract, shell=True, capture_output=True)
 
-        # 2. Accurate Speech Recognition Engine
+        # 2. Speech Recognition
         status_text.text("🤖 Transcribing Real Spoken Words...")
         progress_bar.progress(50)
         
@@ -208,16 +210,15 @@ if uploaded_file:
         except Exception:
             recognized_text = ""
 
-        # Divide into small 2-3 word reel subtitle clips
         if recognized_text.strip():
             words = recognized_text.split()
             chunk_size = 2
             word_chunks = [words[i:i + chunk_size] for i in range(0, len(words), chunk_size)]
-            time_per_chunk = video_duration / max(1, len(word_chunks))
+            time_per_chunk = float(video_duration) / max(1, len(word_chunks))
             
             for idx, chunk in enumerate(word_chunks):
-                st_time = idx * time_per_chunk
-                en_time = min(video_duration, (idx + 1) * time_per_chunk)
+                st_time = float(idx * time_per_chunk)
+                en_time = float(min(video_duration, (idx + 1) * time_per_chunk))
                 segments.append({
                     'start': st_time,
                     'end': en_time,
@@ -226,11 +227,11 @@ if uploaded_file:
 
         if not segments:
             segments = [
-                {'start': 0.0, 'end': video_duration/2, 'text': 'HELLO DOSTO'},
-                {'start': video_duration/2, 'end': video_duration, 'text': 'FOLLOW FOR MORE'}
+                {'start': 0.0, 'end': float(video_duration/2), 'text': 'HELLO DOSTO'},
+                {'start': float(video_duration/2), 'end': float(video_duration), 'text': 'FOLLOW FOR MORE'}
             ]
 
-        # 3. Create Standard Subtitle File
+        # 3. Create Standard SRT File
         status_text.text("🎨 Syncing Subtitle Timing...")
         progress_bar.progress(70)
         
@@ -278,7 +279,6 @@ if uploaded_file:
         if enable_enhancer:
             vf_filters.append("unsharp=5:5:0.8:5:5:0.0,eq=contrast=1.08:saturation=1.15")
 
-        # Clean absolute escaped subtitle filter
         sub_filter = f"subtitles='{srt_path}':force_style='FontSize={font_size},PrimaryColour={hex_c},OutlineColour=&H00000000,BorderStyle=1,Outline=3,Shadow=2,Alignment={align_code},MarginV=50'"
         vf_filters.append(sub_filter)
 
@@ -288,7 +288,6 @@ if uploaded_file:
         cmd_render = f'"{FFMPEG_EXE}" -y -i "{input_path}" -vf "{vf_str}" {af_str} -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac "{output_path}"'
         render_proc = subprocess.run(cmd_render, shell=True, capture_output=True, text=True)
 
-        # Fallback if custom styles fail
         if not os.path.exists(output_path) or os.path.getsize(output_path) < 1000:
             cmd_fallback = f'"{FFMPEG_EXE}" -y -i "{input_path}" -vf "subtitles=\'{srt_path}\'" -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac "{output_path}"'
             render_proc = subprocess.run(cmd_fallback, shell=True, capture_output=True, text=True)
