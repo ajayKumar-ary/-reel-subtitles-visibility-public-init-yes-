@@ -49,6 +49,17 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# ----------------- AUTO-DOWNLOAD BOLD TTF FONT -----------------
+FONT_LOCAL_PATH = "/tmp/ImpactBold.ttf"
+if not os.path.exists(FONT_LOCAL_PATH):
+    try:
+        url = "https://github.com/google/fonts/raw/main/apache/robotocondensed/RobotoCondensed%5Bwght%5D.ttf"
+        r = requests.get(url, timeout=10)
+        with open(FONT_LOCAL_PATH, "wb") as f:
+            f.write(r.content)
+    except Exception:
+        pass
+
 # ----------------- ACCURATE HINGLISH TRANSLITERATOR -----------------
 def devanagari_to_hinglish(text: str) -> str:
     matras = {
@@ -108,30 +119,17 @@ def devanagari_to_hinglish(text: str) -> str:
 
     return " ".join(output_words)
 
-# ----------------- BIG VIRAL OVERLAY GENERATOR -----------------
+# ----------------- BIG VIRAL OVERLAYS -----------------
 def create_subtitle_overlays(segments, position, color_name, font_size_val, out_dir):
     color_dict = {
-        "Yellow Highlight": (255, 220, 0),
+        "Yellow Highlight": (255, 235, 0),
         "Neon Cyan": (0, 245, 255),
         "Pure White": (255, 255, 255),
         "Vibrant Green": (0, 255, 128),
         "Hot Pink": (255, 20, 147)
     }
-    fill_col = color_dict.get(color_name, (255, 220, 0))
+    fill_col = color_dict.get(color_name, (255, 235, 0))
     os.makedirs(out_dir, exist_ok=True)
-    
-    # Check standard available TrueType fonts for large rendering
-    font_candidates = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf"
-    ]
-    font_path = None
-    for f in font_candidates:
-        if os.path.exists(f):
-            font_path = f
-            break
 
     overlay_files = []
     for idx, seg in enumerate(segments):
@@ -139,36 +137,34 @@ def create_subtitle_overlays(segments, position, color_name, font_size_val, out_
         draw = ImageDraw.Draw(img)
         text = seg['text'].strip().upper()
 
-        if font_path:
-            font = ImageFont.truetype(font_path, font_size_val)
+        if os.path.exists(FONT_LOCAL_PATH):
+            font = ImageFont.truetype(FONT_LOCAL_PATH, font_size_val)
         else:
             font = ImageFont.load_default()
 
-        # Calculate bounding box
         bbox = draw.textbbox((0, 0), text, font=font)
         text_w = bbox[2] - bbox[0]
         text_h = bbox[3] - bbox[1]
 
-        # Centered X position
         x = (1080 - text_w) // 2
         
-        # Position Y
+        # Position mapping
         if position == "Top":
-            y = 260
+            y = 300
         elif position == "Middle":
             y = (1920 - text_h) // 2
         else:
-            y = 1450
+            y = 1380  # Viral reel sweet spot (clear of UI & bottom bar)
 
-        # Background badge box
-        pad_x = 35
-        pad_y = 20
+        # Bold black rounded badge background
+        pad_x = 45
+        pad_y = 25
         banner_box = [x - pad_x, y - pad_y, x + text_w + pad_x, y + text_h + pad_y]
-        draw.rounded_rectangle(banner_box, radius=24, fill=(0, 0, 0, 205))
+        draw.rounded_rectangle(banner_box, radius=28, fill=(0, 0, 0, 215))
         
-        # Heavy black stroke for viral readability
-        stroke_w = max(4, font_size_val // 16)
-        draw.text((x, y), text, font=font, fill=fill_col, stroke_width=stroke_w, stroke_fill=(0, 0, 0, 255))
+        # Stroke and main text
+        stroke_val = max(5, font_size_val // 15)
+        draw.text((x, y), text, font=font, fill=fill_col, stroke_width=stroke_val, stroke_fill=(0, 0, 0, 255))
         
         filename = os.path.join(out_dir, f"sub_{idx}.png")
         img.save(filename, "PNG")
@@ -178,7 +174,7 @@ def create_subtitle_overlays(segments, position, color_name, font_size_val, out_
 
 # ----------------- UI WORKSPACE -----------------
 st.title("🎬 CaptionVFX AI Studio Pro")
-st.caption("Bold Viral Subtitles • Hinglish Auto-Romanize • 4K Visual Boost")
+st.caption("Large Viral Subtitles • Perfect Timing • 4K Visual Boost")
 
 uploaded_file = st.file_uploader("📤 Upload Video (MP4/MOV)", type=["mp4", "mov"])
 
@@ -211,7 +207,7 @@ if uploaded_file:
         st.video(input_path)
         st.markdown(f"""
         <div class="metric-card">
-            ⚡ <b>Subtitle Engine:</b> Big Viral Overlay Engine<br>
+            ⚡ <b>Subtitle Engine:</b> Big Viral Typography<br>
             ⏱️ <b>Duration:</b> {video_duration:.1f}s | 🎯 1080x1920
         </div>
         """, unsafe_allow_html=True)
@@ -233,9 +229,9 @@ if uploaded_file:
         
         with c2:
             position = st.selectbox("📍 Subtitle Position", ["Bottom", "Middle", "Top"])
-            font_size = st.slider("🔤 Font Size", 50, 140, 95)
+            font_size = st.slider("🔤 Font Size", 60, 160, 110)
 
-        custom_override = st.text_input("✍️ Manual Subtitle Override (Optional)", placeholder="Khaali chhoden (Auto-detect hoga)")
+        custom_override = st.text_input("✍️ Manual Subtitle Override (Optional)", placeholder="Khaali chhoden agar video audio auto-detect chahiye")
 
     if st.button("🚀 Render Subtitled Video", use_container_width=True):
         progress_bar = st.progress(0)
@@ -247,7 +243,7 @@ if uploaded_file:
         cmd_extract = f'"{FFMPEG_EXE}" -y -i "{input_path}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "{audio_path}"'
         subprocess.run(cmd_extract, shell=True, capture_output=True)
 
-        # 2. Accurate Speech Recognition
+        # 2. Transcribe Audio
         status_text.text("🤖 Transcribing Spoken Audio...")
         progress_bar.progress(50)
         
@@ -262,7 +258,6 @@ if uploaded_file:
             except Exception:
                 recognized_text = ""
 
-        # Divide into small punchy chunks
         segments = []
         if recognized_text:
             words = recognized_text.split()
@@ -291,7 +286,7 @@ if uploaded_file:
                 {'start': video_duration/2, 'end': video_duration, 'text': 'VIRAL VIDEO REEL'}
             ]
 
-        # 3. Create Big PNG Overlays
+        # 3. Create Big HD Overlays
         status_text.text("🎨 Generating Large Viral Captions...")
         progress_bar.progress(70)
         overlays = create_subtitle_overlays(segments, position, primary_color, font_size, overlays_dir)
@@ -336,4 +331,4 @@ if uploaded_file:
             st.error("Render issue. Please try again.")
 
         gc.collect()
-    
+        
