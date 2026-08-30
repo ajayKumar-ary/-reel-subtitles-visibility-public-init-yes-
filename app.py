@@ -29,10 +29,9 @@ st.set_page_config(
 SMTP_SENDER_EMAIL = "tiwariajaykumar690@gmail.com"
 SMTP_SENDER_PASSWORD = "zcnqpshuswnhztto"
 
-# Cloudinary Dashboard se mili 3 details yahan dalein:
-CLOUDINARY_CLOUD_NAME = "YOUR_CLOUD_NAME_HERE"
-CLOUDINARY_API_KEY = "YOUR_API_KEY_HERE"
-CLOUDINARY_API_SECRET = "YOUR_API_SECRET_HERE"
+CLOUDINARY_CLOUD_NAME = "mqzihwci"
+CLOUDINARY_API_KEY = "YOUR_API_KEY_HERE"       # Yahan apni Cloudinary API Key daalein
+CLOUDINARY_API_SECRET = "YOUR_API_SECRET_HERE" # Yahan apna Cloudinary API Secret daalein
 
 cloudinary.config(
     cloud_name=CLOUDINARY_CLOUD_NAME,
@@ -481,5 +480,4 @@ if uploaded_file:
                 "[V4+ Styles]\n"
                 "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
                 f"Style: ReelStyle,{chosen_font},{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,2,0,1,{outline_size},{shadow_size},2,20,20,{margin_v},1\n\n"
-                "[Events]\n"
-   
+          
