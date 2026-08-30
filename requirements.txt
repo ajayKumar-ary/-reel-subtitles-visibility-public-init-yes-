@@ -1,4 +1,2 @@
 streamlit
 requests
-moviepy
-Pillow
