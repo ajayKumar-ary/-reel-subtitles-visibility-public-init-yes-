@@ -1,7 +1,4 @@
 streamlit
-faster-whisper
-indic-transliteration
-opencv-python-headless
-numpy
-cloudinary
-
+openai-whisper
+torch
+torchaudio
