@@ -472,12 +472,5 @@ if uploaded_file:
                 elif "0.5x" in speed_rate: speed_factor = 2.0
                 elif "0.25x" in speed_rate: speed_factor = 4.0
 
-            ass_header = (
-                "[Script Info]\n"
-                "ScriptType: v4.00+\n"
-                "PlayResX: 1080\n"
-                "PlayResY: 1920\n\n"
-                "[V4+ Styles]\n"
-                "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
-                f"Style: ReelStyle,{chosen_font},{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,2,0,1,{outline_size},{shadow_size},2,20,20,{margin_v},1\n\n"
-          
+            # Safe Subtitle Header String Construction
+            ass_header = "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: ReelStyle," + str(chosen_font) + "," + str(font_size) + ",&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,2,0,1," + str(outline_size) + "," + str(shadow_size) + ",2,20,20," + str(margin_v) + ",1\n\n[Events]\nFormat: Layer, Start, End
