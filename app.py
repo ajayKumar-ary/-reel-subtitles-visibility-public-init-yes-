@@ -12,7 +12,6 @@ from PIL import Image, ImageDraw, ImageFont
 
 FFMPEG_EXE = imageio_ffmpeg.get_ffmpeg_exe()
 
-# ----------------- PAGE CONFIG -----------------
 st.set_page_config(
     page_title="CaptionVFX AI Studio Pro",
     page_icon="🎬",
@@ -20,7 +19,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ----------------- CUSTOM CSS -----------------
 st.markdown("""
 <style>
     .main { background-color: #0b0f19; color: #f8fafc; }
@@ -50,7 +48,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ----------------- GUARANTEED FONT LOADER -----------------
 def get_custom_font(size):
     font_file = "/tmp/caption_font.ttf"
     if not os.path.exists(font_file) or os.path.getsize(font_file) < 5000:
@@ -84,7 +81,6 @@ def get_custom_font(size):
 
     return ImageFont.load_default(), False
 
-# ----------------- ACCURATE HINGLISH TRANSLITERATOR -----------------
 def devanagari_to_hinglish(text: str) -> str:
     matras = {
         'ा': 'a', 'ि': 'i', 'ी': 'ee', 'ु': 'u', 'ू': 'oo', 'ृ': 'ri',
@@ -143,7 +139,6 @@ def devanagari_to_hinglish(text: str) -> str:
 
     return " ".join(output_words)
 
-# ----------------- MULTI-LINE OVERLAY ENGINE -----------------
 def create_subtitle_overlays(segments, position, color_name, preset_style, font_size_user, shadow_mode, stroke_mode, vw, vh, out_dir):
     color_dict = {
         "Yellow Highlight": (255, 230, 0),
@@ -213,14 +208,13 @@ def create_subtitle_overlays(segments, position, color_name, preset_style, font_
                 if s_alpha > 0:
                     d_badge.text((lx + s_offset, curr_y + s_offset), line, font=font, fill=(0, 0, 0, s_alpha))
                 d_badge.text((lx, curr_y), line, font=font, fill=fill_col)
-            else:  # Hormozi Viral Pop
+            else:
                 if s_alpha > 0:
                     d_badge.text((lx + s_offset, curr_y + s_offset), line, font=font, fill=(0, 0, 0, s_alpha), stroke_width=stroke_w, stroke_fill=(0, 0, 0, s_alpha))
                 d_badge.text((lx, curr_y), line, font=font, fill=fill_col, stroke_width=stroke_w, stroke_fill=(0, 0, 0, 255))
                 
             curr_y += lh + line_spacing
 
-        # Safe Width Auto-Fit
         max_allowed_w = int(vw * 0.55)
         if not is_ttf or badge_w > max_allowed_w or badge_w < int(vw * 0.35):
             scaled_w = min(max_allowed_w, max(int(vw * 0.38), badge_w))
@@ -248,7 +242,6 @@ def create_subtitle_overlays(segments, position, color_name, preset_style, font_
         
     return overlay_files
 
-# ----------------- UI WORKSPACE -----------------
 st.title("🎬 CaptionVFX AI Studio Pro")
 st.caption("Automatic Waveform Lip-Sync • 1/2/3-Liner Structure • Safe Area Fit")
 
@@ -363,13 +356,11 @@ if uploaded_file:
         progress_bar = st.progress(0)
         status_text = st.empty()
 
-        # 1. Clean Audio Extraction
         status_text.text("🎙️ Extracting Clean Audio Track...")
         progress_bar.progress(25)
         cmd_extract = f'"{FFMPEG_EXE}" -y -i "{input_path}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "{audio_path}"'
         subprocess.run(cmd_extract, shell=True, capture_output=True)
 
-        # 2. Automatic Waveform Lip-Sync Detection
         status_text.text("🤖 Detecting Speech Waveforms for Auto-Sync...")
         progress_bar.progress(50)
         
@@ -397,7 +388,6 @@ if uploaded_file:
             except Exception:
                 recognized_text = ""
 
-        # Chunk logic based on Line Format
         if "1-Liner" in line_structure:
             chunk_size = 1
         elif "3-Liner" in line_structure:
@@ -441,7 +431,6 @@ if uploaded_file:
                 {'start': video_duration/2, 'end': video_duration, 'text': 'VIRAL REEL'}
             ]
 
-        # 3. Generate Overlays
         status_text.text("🎨 Generating Formatted Overlays...")
         progress_bar.progress(70)
         overlays = create_subtitle_overlays(
@@ -449,7 +438,6 @@ if uploaded_file:
             font_size_user, shadow_mode, stroke_mode, vw, vh, overlays_dir
         )
 
-        # 4. Multi-Overlay + Enhancements Burn
         status_text.text("⚡ Merging Subtitles with Audio Track...")
         progress_bar.progress(85)
         
@@ -496,7 +484,6 @@ if uploaded_file:
         progress_bar.progress(100)
         status_text.empty()
 
-        # 5. Output Video Display & Download
         if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
             st.success("✅ Subtitles Synced Automatically!")
             with open(output_path, "rb") as vid_file:
@@ -509,4 +496,8 @@ if uploaded_file:
                     mime="video/mp4",
                     use_container_width=True
                 )
-            else:
+        else:
+            st.error("Render issue. Please try again.")
+
+        gc.collect()
+        
