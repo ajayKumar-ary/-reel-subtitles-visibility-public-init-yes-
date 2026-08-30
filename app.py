@@ -108,76 +108,83 @@ def devanagari_to_hinglish(text: str) -> str:
 
     return " ".join(output_words)
 
-# ----------------- SYSTEM FONT LOADER -----------------
-def get_scalable_font(size):
-    font_paths = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf"
-    ]
-    for p in font_paths:
-        if os.path.exists(p):
-            try:
-                return ImageFont.truetype(p, size)
-            except Exception:
-                pass
-    return ImageFont.load_default()
-
-# ----------------- DYNAMIC RESOLUTION OVERLAYS -----------------
-def create_subtitle_overlays(segments, position, color_name, font_scale, vw, vh, out_dir):
+# ----------------- GUARANTEED LARGE OVERLAY GENERATOR -----------------
+def create_subtitle_overlays(segments, position, color_name, vw, vh, out_dir):
     color_dict = {
-        "Yellow Highlight": (255, 235, 0),
+        "Yellow Highlight": (255, 230, 0),
         "Neon Cyan": (0, 245, 255),
         "Pure White": (255, 255, 255),
         "Vibrant Green": (0, 255, 128),
         "Hot Pink": (255, 20, 147)
     }
-    fill_col = color_dict.get(color_name, (255, 235, 0))
+    fill_col = color_dict.get(color_name, (255, 230, 0))
     os.makedirs(out_dir, exist_ok=True)
 
-    # Dynamic font sizing according to video width
-    calculated_font_size = int(vw * (font_scale / 1000.0))
-    font = get_scalable_font(calculated_font_size)
-
     overlay_files = []
+    
     for idx, seg in enumerate(segments):
-        img = Image.new("RGBA", (vw, vh), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img)
         text = seg['text'].strip().upper()
+        
+        # 1. Base High-Res Text Rendering
+        img_temp = Image.new("RGBA", (1000, 300), (0, 0, 0, 0))
+        d_temp = ImageDraw.Draw(img_temp)
+        
+        # Try loading true scalable font or generate scalable vector text
+        font_loaded = False
+        for p in ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "DejaVuSans-Bold.ttf"]:
+            if os.path.exists(p):
+                try:
+                    font = ImageFont.truetype(p, 65)
+                    font_loaded = True
+                    break
+                except:
+                    pass
+        if not font_loaded:
+            font = ImageFont.load_default()
 
-        bbox = draw.textbbox((0, 0), text, font=font)
-        text_w = bbox[2] - bbox[0]
-        text_h = bbox[3] - bbox[1]
+        bbox = d_temp.textbbox((0, 0), text, font=font)
+        raw_w = max(10, bbox[2] - bbox[0])
+        raw_h = max(10, bbox[3] - bbox[1])
+        
+        # Render text on tight canvas
+        pad = 20
+        badge_w = raw_w + (pad * 2)
+        badge_h = raw_h + (pad * 2)
+        
+        badge_img = Image.new("RGBA", (badge_w, badge_h), (0, 0, 0, 0))
+        d_badge = ImageDraw.Draw(badge_img)
+        d_badge.rounded_rectangle([0, 0, badge_w, badge_h], radius=16, fill=(0, 0, 0, 220))
+        d_badge.text((pad - bbox[0], pad - bbox[1]), text, font=font, fill=fill_col, stroke_width=3, stroke_fill=(0, 0, 0, 255))
 
-        x = (vw - text_w) // 2
+        # 2. Target 75% Video Width for Viral Reel Readability
+        target_w = int(vw * 0.78)
+        target_h = int(badge_h * (target_w / badge_w))
+        
+        # Rescale text banner to huge proportional size
+        scaled_badge = badge_img.resize((target_w, target_h), Image.Resampling.NEAREST if not font_loaded else Image.Resampling.BICUBIC)
+
+        # 3. Paste on Final Canvas
+        final_overlay = Image.new("RGBA", (vw, vh), (0, 0, 0, 0))
+        paste_x = (vw - target_w) // 2
         
         if position == "Top":
-            y = int(vh * 0.15)
+            paste_y = int(vh * 0.15)
         elif position == "Middle":
-            y = (vh - text_h) // 2
+            paste_y = (vh - target_h) // 2
         else:
-            y = int(vh * 0.76)  # Perfect readable lower position
+            paste_y = int(vh * 0.75)
 
-        # Dynamic padding
-        pad_x = int(vw * 0.04)
-        pad_y = int(vh * 0.015)
-        radius = int(vw * 0.025)
-        banner_box = [x - pad_x, y - pad_y, x + text_w + pad_x, y + text_h + pad_y]
-        draw.rounded_rectangle(banner_box, radius=radius, fill=(0, 0, 0, 215))
-        
-        stroke_val = max(3, calculated_font_size // 14)
-        draw.text((x, y), text, font=font, fill=fill_col, stroke_width=stroke_val, stroke_fill=(0, 0, 0, 255))
+        final_overlay.paste(scaled_badge, (paste_x, paste_y), scaled_badge)
         
         filename = os.path.join(out_dir, f"sub_{idx}.png")
-        img.save(filename, "PNG")
+        final_overlay.save(filename, "PNG")
         overlay_files.append((filename, seg['start'], seg['end']))
         
     return overlay_files
 
 # ----------------- UI WORKSPACE -----------------
 st.title("🎬 CaptionVFX AI Studio Pro")
-st.caption("Responsive Subtitles • Exact Dynamic Scale • Perfect Timing")
+st.caption("Auto-Magnified Large Subtitles • Hinglish Auto-Romanize • 4K Visual Boost")
 
 uploaded_file = st.file_uploader("📤 Upload Video (MP4/MOV)", type=["mp4", "mov"])
 
@@ -240,7 +247,6 @@ if uploaded_file:
         
         with c2:
             position = st.selectbox("📍 Subtitle Position", ["Bottom", "Middle", "Top"])
-            font_scale = st.slider("🔤 Font Size Scale", 60, 140, 95)
 
         custom_override = st.text_input("✍️ Manual Subtitle Override (Optional)", placeholder="Khaali chhoden agar auto-detect audio chahiye")
 
@@ -297,12 +303,12 @@ if uploaded_file:
                 {'start': video_duration/2, 'end': video_duration, 'text': 'VIRAL VIDEO REEL'}
             ]
 
-        # 3. Dynamic Resolution Overlays
-        status_text.text("🎨 Generating Responsive Graphic Captions...")
+        # 3. Dynamic Large Overlays
+        status_text.text("🎨 Generating Auto-Scaled Large Captions...")
         progress_bar.progress(70)
-        overlays = create_subtitle_overlays(segments, position, primary_color, font_scale, vw, vh, overlays_dir)
+        overlays = create_subtitle_overlays(segments, position, primary_color, vw, vh, overlays_dir)
 
-        # 4. Direct FFmpeg Overlay (Zero padding distortion)
+        # 4. Multi-Overlay Filter Burn
         status_text.text("⚡ Burning Captions onto Video...")
         progress_bar.progress(85)
         
@@ -327,7 +333,7 @@ if uploaded_file:
 
         # 5. Output Video Display & Download
         if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
-            st.success("✅ Subtitles Burned Successfully!")
+            st.success("✅ Large Subtitles Burned Successfully!")
             with open(output_path, "rb") as vid_file:
                 video_bytes = vid_file.read()
                 st.video(video_bytes)
@@ -342,4 +348,4 @@ if uploaded_file:
             st.error("Render issue. Please try again.")
 
         gc.collect()
-                
+        
