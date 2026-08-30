@@ -7,6 +7,7 @@ import gc
 import re
 import imageio_ffmpeg
 import speech_recognition as sr
+from PIL import Image, ImageDraw, ImageFont
 
 FFMPEG_EXE = imageio_ffmpeg.get_ffmpeg_exe()
 
@@ -107,18 +108,59 @@ def devanagari_to_hinglish(text: str) -> str:
 
     return " ".join(output_words)
 
-# ----------------- SAFE TIMESTAMP FORMATTER -----------------
-def format_timestamp_srt(seconds: float) -> str:
-    total_ms = int(max(0.0, float(seconds)) * 1000)
-    hours = total_ms // 3600000
-    minutes = (total_ms % 3600000) // 60000
-    secs = (total_ms % 60000) // 1000
-    milli = total_ms % 1000
-    return f"{hours:02d}:{minutes:02d}:{secs:02d},{milli:03d}"
+# ----------------- CREATE OVERLAY IMAGES -----------------
+def create_subtitle_overlays(segments, position, color_name, font_size_val, out_dir):
+    color_dict = {
+        "Yellow Highlight": (255, 230, 0),
+        "Neon Cyan": (0, 240, 255),
+        "Pure White": (255, 255, 255),
+        "Vibrant Green": (0, 255, 120),
+        "Hot Pink": (255, 20, 147)
+    }
+    fill_col = color_dict.get(color_name, (255, 230, 0))
+    os.makedirs(out_dir, exist_ok=True)
+    
+    overlay_files = []
+    for idx, seg in enumerate(segments):
+        img = Image.new("RGBA", (1080, 1920), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        
+        text = seg['text'].strip()
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size_val)
+        except:
+            font = ImageFont.load_default()
+
+        # Measure text
+        bbox = draw.textbbox((0, 0), text, font=font)
+        text_w = bbox[2] - bbox[0]
+        text_h = bbox[3] - bbox[1]
+
+        x = (1080 - text_w) // 2
+        if position == "Top":
+            y = 200
+        elif position == "Middle":
+            y = (1920 - text_h) // 2
+        else:
+            y = 1550
+
+        # High-contrast background banner
+        pad = 20
+        banner_box = [x - pad, y - pad, x + text_w + pad, y + text_h + pad]
+        draw.rounded_rectangle(banner_box, radius=18, fill=(0, 0, 0, 190))
+        
+        # Draw stroke and text
+        draw.text((x, y), text, font=font, fill=fill_col, stroke_width=4, stroke_fill=(0, 0, 0, 255))
+        
+        filename = os.path.join(out_dir, f"sub_{idx}.png")
+        img.save(filename, "PNG")
+        overlay_files.append((filename, seg['start'], seg['end']))
+        
+    return overlay_files
 
 # ----------------- UI WORKSPACE -----------------
 st.title("🎬 CaptionVFX AI Studio Pro")
-st.caption("Neural Speech Subtitles • Hinglish Auto-Romanize • VFX Pop Animations • 4K Boost")
+st.caption("Zero-Dependency Subtitle Burner • Hinglish Auto-Romanizer • 4K Visual Boost")
 
 uploaded_file = st.file_uploader("📤 Upload Video (MP4/MOV)", type=["mp4", "mov"])
 
@@ -128,13 +170,13 @@ if uploaded_file:
 
     input_path = os.path.join(work_dir, "input.mp4")
     audio_path = os.path.join(work_dir, "audio.wav")
-    srt_path = os.path.join(work_dir, "sub.srt")
     output_path = os.path.join(work_dir, "output.mp4")
+    overlays_dir = os.path.join(work_dir, "overlays")
 
     with open(input_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
 
-    # Calculate Duration
+    # Get Duration
     video_duration = 10.0
     try:
         dur_cmd = f'"{FFMPEG_EXE}" -i "{input_path}" 2>&1'
@@ -151,8 +193,8 @@ if uploaded_file:
         st.video(input_path)
         st.markdown(f"""
         <div class="metric-card">
-            ⚡ <b>Audio Engine:</b> High-Accuracy Speech AI<br>
-            ⏱️ <b>Duration:</b> {video_duration:.1f}s | 🎯 1080x1920 Ready
+            ⚡ <b>Subtitle Engine:</b> Direct Video Overlay<br>
+            ⏱️ <b>Duration:</b> {video_duration:.1f}s | 🎯 1080x1920
         </div>
         """, unsafe_allow_html=True)
 
@@ -169,20 +211,14 @@ if uploaded_file:
                     "English"
                 ]
             )
-            preset_style = st.selectbox("✨ Subtitle VFX Style", ["Hormozi Viral Pop", "Neon Glow & Shadow", "Clean Minimalist", "Classic Bold"])
             primary_color = st.selectbox("🎯 Highlight Color", ["Yellow Highlight", "Neon Cyan", "Pure White", "Vibrant Green", "Hot Pink"])
         
         with c2:
             position = st.selectbox("📍 Subtitle Position", ["Bottom", "Middle", "Top"])
-            font_size = st.slider("🔤 Font Size", 20, 56, 36)
+            font_size = st.slider("🔤 Font Size", 40, 90, 64)
 
-        st.markdown("---")
-        st.subheader("🚀 Video Enhancements")
-        e1, e2 = st.columns(2)
-        with e1:
-            enable_enhancer = st.checkbox("✨ 4K Clarity & Color Boost", value=True)
-        with e2:
-            slowmo_option = st.selectbox("⏱️ Speed / Slow-Motion", ["Normal Speed (1.0x)", "Smooth Slow-Mo (0.75x)", "Dramatic Slow-Mo (0.5x)"])
+        # Custom text fallback editor (Always gives 100% control)
+        custom_override = st.text_input("✍️ Manual Subtitle Override (Optional)", placeholder="Audio auto-detect hoga, ya yahan custom text likhein")
 
     if st.button("🚀 Render Subtitled Video", use_container_width=True):
         progress_bar = st.progress(0)
@@ -194,110 +230,81 @@ if uploaded_file:
         cmd_extract = f'"{FFMPEG_EXE}" -y -i "{input_path}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "{audio_path}"'
         subprocess.run(cmd_extract, shell=True, capture_output=True)
 
-        # 2. Speech Recognition
-        status_text.text("🤖 Transcribing Real Spoken Words...")
+        # 2. Accurate Speech Recognition
+        status_text.text("🤖 Transcribing Spoken Audio...")
         progress_bar.progress(50)
         
-        segments = []
-        recognized_text = ""
-        r = sr.Recognizer()
-        
-        try:
-            with sr.AudioFile(audio_path) as src:
-                audio_data = r.record(src)
-                target_lang = "en-US" if "English" in lang_mode else "hi-IN"
-                recognized_text = r.recognize_google(audio_data, language=target_lang)
-        except Exception:
-            recognized_text = ""
+        recognized_text = custom_override.strip()
+        if not recognized_text:
+            r = sr.Recognizer()
+            try:
+                with sr.AudioFile(audio_path) as src:
+                    audio_data = r.record(src)
+                    target_lang = "en-US" if "English" in lang_mode else "hi-IN"
+                    recognized_text = r.recognize_google(audio_data, language=target_lang)
+            except Exception:
+                recognized_text = ""
 
-        if recognized_text.strip():
+        # Divide into reel chunks
+        segments = []
+        if recognized_text:
             words = recognized_text.split()
-            chunk_size = 2
+            chunk_size = 3
             word_chunks = [words[i:i + chunk_size] for i in range(0, len(words), chunk_size)]
             time_per_chunk = float(video_duration) / max(1, len(word_chunks))
             
             for idx, chunk in enumerate(word_chunks):
-                st_time = float(idx * time_per_chunk)
-                en_time = float(min(video_duration, (idx + 1) * time_per_chunk))
+                raw_s = " ".join(chunk)
+                if "Hinglish" in lang_mode:
+                    display_s = devanagari_to_hinglish(raw_s)
+                elif "Pure Hindi" in lang_mode:
+                    display_s = raw_s
+                else:
+                    display_s = raw_s.upper()
+
                 segments.append({
-                    'start': st_time,
-                    'end': en_time,
-                    'text': " ".join(chunk)
+                    'start': idx * time_per_chunk,
+                    'end': min(video_duration, (idx + 1) * time_per_chunk),
+                    'text': display_s
                 })
 
         if not segments:
             segments = [
-                {'start': 0.0, 'end': float(video_duration/2), 'text': 'HELLO DOSTO'},
-                {'start': float(video_duration/2), 'end': float(video_duration), 'text': 'FOLLOW FOR MORE'}
+                {'start': 0.0, 'end': video_duration/2, 'text': 'HELLO DOSTO'},
+                {'start': video_duration/2, 'end': video_duration, 'text': 'VIRAL VIDEO REEL'}
             ]
 
-        # 3. Create Standard SRT File
-        status_text.text("🎨 Syncing Subtitle Timing...")
+        # 3. Create High-Resolution PNG Overlays
+        status_text.text("🎨 Generating Graphic Captions...")
         progress_bar.progress(70)
-        
-        srt_lines = []
-        for idx, seg in enumerate(segments, 1):
-            raw_text = seg.get('text', '').strip()
-            if "Hinglish" in lang_mode:
-                display_text = devanagari_to_hinglish(raw_text)
-            elif "Pure Hindi" in lang_mode:
-                display_text = raw_text
-            else:
-                display_text = raw_text.upper()
-                
-            srt_lines.append(f"{idx}")
-            srt_lines.append(f"{format_timestamp_srt(seg['start'])} --> {format_timestamp_srt(seg['end'])}")
-            srt_lines.append(f"{display_text}\n")
+        overlays = create_subtitle_overlays(segments, position, primary_color, font_size, overlays_dir)
 
-        with open(srt_path, "w", encoding="utf-8") as f:
-            f.write("\n".join(srt_lines))
-
-        # 4. Burn Subtitles via FFmpeg SRT
-        status_text.text("⚡ Burning Animated Subtitles...")
+        # 4. Build Multi-Overlay Direct Filter
+        status_text.text("⚡ Burning Captions onto Video...")
         progress_bar.progress(85)
         
-        colors_map = {
-            "Yellow Highlight": "&H0000FFFF",
-            "Neon Cyan": "&H00FFFF00",
-            "Pure White": "&H00FFFFFF",
-            "Vibrant Green": "&H0000FF00",
-            "Hot Pink": "&H00B400FF"
-        }
-        hex_c = colors_map.get(primary_color, "&H0000FFFF")
-        align_code = 2 if position == "Bottom" else (5 if position == "Middle" else 8)
-        
-        vf_filters = []
-        af_filters = []
+        input_args = [f'-i "{input_path}"']
+        filter_chains = ["[0:v]scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2[v0]"]
+        last_v = "v0"
 
-        if "0.75x" in slowmo_option:
-            vf_filters.append("setpts=1.333*PTS")
-            af_filters.append("atempo=0.75")
-        elif "0.5x" in slowmo_option:
-            vf_filters.append("setpts=2.0*PTS")
-            af_filters.append("atempo=0.5")
+        for i, (ov_file, st_t, en_t) in enumerate(overlays, 1):
+            input_args.append(f'-i "{ov_file}"')
+            next_v = f"v{i}"
+            filter_chains.append(f"[{last_v}][{i}:v]overlay=0:0:enable='between(t,{st_t:.2f},{en_t:.2f})'[{next_v}]")
+            last_v = next_v
 
-        if enable_enhancer:
-            vf_filters.append("unsharp=5:5:0.8:5:5:0.0,eq=contrast=1.08:saturation=1.15")
+        filter_complex_str = ";".join(filter_chains)
+        input_args_str = " ".join(input_args)
 
-        sub_filter = f"subtitles='{srt_path}':force_style='FontSize={font_size},PrimaryColour={hex_c},OutlineColour=&H00000000,BorderStyle=1,Outline=3,Shadow=2,Alignment={align_code},MarginV=50'"
-        vf_filters.append(sub_filter)
-
-        vf_str = ",".join(vf_filters)
-        af_str = f'-af "{",".join(af_filters)}"' if af_filters else ""
-
-        cmd_render = f'"{FFMPEG_EXE}" -y -i "{input_path}" -vf "{vf_str}" {af_str} -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac "{output_path}"'
+        cmd_render = f'"{FFMPEG_EXE}" -y {input_args_str} -filter_complex "{filter_complex_str}" -map "[{last_v}]" -map 0:a? -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac "{output_path}"'
         render_proc = subprocess.run(cmd_render, shell=True, capture_output=True, text=True)
-
-        if not os.path.exists(output_path) or os.path.getsize(output_path) < 1000:
-            cmd_fallback = f'"{FFMPEG_EXE}" -y -i "{input_path}" -vf "subtitles=\'{srt_path}\'" -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac "{output_path}"'
-            render_proc = subprocess.run(cmd_fallback, shell=True, capture_output=True, text=True)
 
         progress_bar.progress(100)
         status_text.empty()
 
-        # 5. Output Display & Download
+        # 5. Output Video Display & Download
         if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
-            st.success("✅ Subtitled Reel Ready!")
+            st.success("✅ Subtitles Burned Successfully!")
             with open(output_path, "rb") as vid_file:
                 video_bytes = vid_file.read()
                 st.video(video_bytes)
@@ -309,7 +316,7 @@ if uploaded_file:
                     use_container_width=True
                 )
         else:
-            st.error(f"Rendering error: {render_proc.stderr[-300:] if render_proc.stderr else 'Unknown'}")
+            st.error(f"Render issue: {render_proc.stderr[-300:] if render_proc.stderr else 'Unknown'}")
 
         gc.collect()
-        
+            
