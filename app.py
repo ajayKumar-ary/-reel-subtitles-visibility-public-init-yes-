@@ -187,7 +187,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 st.title("🎬 CaptionVFX AI Studio Pro")
 st.caption("Cloud AI Subtitles • Hinglish Auto-Romanize • VFX Pop Animations • 4K Visual Boost")
 
-# Token setup
 hf_token = st.secrets.get("HF_TOKEN", "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")
 
 uploaded_file = st.file_uploader("📤 Upload Video (MP4/MOV)", type=["mp4", "mov"])
@@ -196,13 +195,16 @@ if uploaded_file:
     with open("temp_input.mp4", "wb") as f:
         f.write(uploaded_file.getbuffer())
 
-    # Get duration
-    dur_cmd = 'ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 temp_input.mp4'
-    dur_proc = subprocess.run(dur_cmd, shell=True, capture_output=True, text=True)
+    # Duration Check
+    video_duration = 10.0
     try:
-        video_duration = float(dur_proc.stdout.strip())
+        dur_cmd = 'ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 temp_input.mp4'
+        dur_proc = subprocess.run(dur_cmd, shell=True, capture_output=True, text=True)
+        val = float(dur_proc.stdout.strip())
+        if val > 0:
+            video_duration = val
     except:
-        video_duration = 10.0
+        pass
 
     col_preview, col_settings = st.columns([1, 1.2])
 
@@ -286,7 +288,6 @@ if uploaded_file:
         except Exception:
             segments = []
 
-        # Automatic fallback chunks if speech is silent
         if not segments:
             segments = [
                 {'start': 0.0, 'end': video_duration/2, 'text': 'YEH HAI VIRAL REEL'},
@@ -307,8 +308,8 @@ if uploaded_file:
         with open("subtitles.ass", "w", encoding="utf-8") as f:
             f.write(ass_content)
 
-        # 4. Bulletproof Video Merge
-        status_text.text("⚡ Final Fast Merge...")
+        # 4. Multi-Engine FFmpeg Render
+        status_text.text("⚡ Final Video Merge...")
         progress_bar.progress(85)
         
         vf_filters = []
@@ -324,13 +325,21 @@ if uploaded_file:
         if enable_enhancer:
             vf_filters.append("unsharp=5:5:0.8:5:5:0.0,eq=contrast=1.08:saturation=1.15")
 
-        vf_filters.append("ass=subtitles.ass")
+        # Absolute safe ass filter path
+        abs_ass = os.path.abspath("subtitles.ass").replace("\\", "/")
+        vf_filters.append(f"ass='{abs_ass}'")
         
         vf_str = ",".join(vf_filters)
-        af_str = f'-af "{",".join(af_filters)}"' if af_filters else "-c:a aac"
+        af_str = f'-af "{",".join(af_filters)}"' if af_filters else ""
 
-        cmd_render = f'ffmpeg -y -i temp_input.mp4 -vf "{vf_str}" {af_str} -c:v libx264 -preset ultrafast -pix_fmt yuv420p output.mp4'
+        # Primary Render Command
+        cmd_render = f'ffmpeg -y -i temp_input.mp4 -vf "{vf_str}" {af_str} -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac output.mp4'
         subprocess.run(cmd_render, shell=True, capture_output=True)
+
+        # Secondary Fallback if primary fails
+        if not os.path.exists("output.mp4") or os.path.getsize("output.mp4") < 1000:
+            cmd_fallback = f'ffmpeg -y -i temp_input.mp4 -vf "subtitles=subtitles.ass" -c:v libx264 -preset ultrafast -c:a aac output.mp4'
+            subprocess.run(cmd_fallback, shell=True, capture_output=True)
 
         progress_bar.progress(100)
         status_text.empty()
@@ -349,7 +358,7 @@ if uploaded_file:
                     use_container_width=True
                 )
         else:
-            st.error("Rendering issue. Please verify input video.")
+            st.error("Rendering failed. Please check logs.")
 
         cleanup_files(["temp_input.mp4", "temp_audio.wav", "subtitles.ass", "output.mp4"])
         gc.collect()
