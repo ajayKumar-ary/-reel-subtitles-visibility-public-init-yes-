@@ -143,7 +143,7 @@ def devanagari_to_hinglish(text: str) -> str:
 
     return " ".join(output_words)
 
-# ----------------- OVERLAY GENERATOR -----------------
+# ----------------- MULTI-LINE OVERLAY ENGINE -----------------
 def create_subtitle_overlays(segments, position, color_name, preset_style, font_size_user, shadow_mode, stroke_mode, vw, vh, out_dir):
     color_dict = {
         "Yellow Highlight": (255, 230, 0),
@@ -172,45 +172,56 @@ def create_subtitle_overlays(segments, position, color_name, preset_style, font_
     overlay_files = []
     for idx, seg in enumerate(segments):
         text = seg['text'].strip().upper()
+        lines = text.split('\n')
         
         test_img = Image.new("RGBA", (1, 1), (0, 0, 0, 0))
         test_draw = ImageDraw.Draw(test_img)
-        bbox = test_draw.textbbox((0, 0), text, font=font)
-        raw_w = max(10, bbox[2] - bbox[0])
-        raw_h = max(10, bbox[3] - bbox[1])
+        
+        line_boxes = [test_draw.textbbox((0, 0), line, font=font) for line in lines]
+        line_widths = [box[2] - box[0] for box in line_boxes]
+        line_heights = [box[3] - box[1] for box in line_boxes]
+        
+        total_w = max(line_widths) if line_widths else 50
+        line_spacing = int(target_font_size * 0.25)
+        total_h = sum(line_heights) + (line_spacing * (len(lines) - 1))
 
-        pad_x = int(raw_w * 0.1) + stroke_w + s_offset + 8
-        pad_y = int(raw_h * 0.12) + stroke_w + s_offset + 8
-        badge_w = raw_w + (pad_x * 2)
-        badge_h = raw_h + (pad_y * 2)
+        pad_x = int(total_w * 0.1) + stroke_w + s_offset + 10
+        pad_y = int(total_h * 0.12) + stroke_w + s_offset + 10
+        badge_w = total_w + (pad_x * 2)
+        badge_h = total_h + (pad_y * 2)
 
         badge_img = Image.new("RGBA", (badge_w, badge_h), (0, 0, 0, 0))
         d_badge = ImageDraw.Draw(badge_img)
 
-        text_x = pad_x - bbox[0]
-        text_y = pad_y - bbox[1]
-
         if preset_style == "Modern Pill Badge":
-            d_badge.rounded_rectangle([0, 0, badge_w, badge_h], radius=int(badge_h * 0.28), fill=(0, 0, 0, 180))
-            d_badge.text((text_x, text_y), text, font=font, fill=fill_col, stroke_width=2, stroke_fill=(0, 0, 0, 255))
-        
-        elif preset_style == "Neon Glow":
-            glow_col = (fill_col[0], fill_col[1], fill_col[2], 90)
-            for offset in [(3,3), (-3,-3), (3,-3), (-3,3), (0,4), (4,0)]:
-                d_badge.text((text_x + offset[0], text_y + offset[1]), text, font=font, fill=glow_col, stroke_width=stroke_w+3, stroke_fill=(0,0,0,90))
-            d_badge.text((text_x, text_y), text, font=font, fill=(255, 255, 255), stroke_width=stroke_w, stroke_fill=(0, 0, 0, 255))
+            d_badge.rounded_rectangle([0, 0, badge_w, badge_h], radius=int(badge_h * 0.2), fill=(0, 0, 0, 180))
 
-        elif preset_style == "Clean Minimalist":
-            if s_alpha > 0:
-                d_badge.text((text_x + s_offset, text_y + s_offset), text, font=font, fill=(0, 0, 0, s_alpha))
-            d_badge.text((text_x, text_y), text, font=font, fill=fill_col)
+        curr_y = pad_y
+        for i, line in enumerate(lines):
+            lw = line_widths[i]
+            lh = line_heights[i]
+            lx = pad_x + (total_w - lw) // 2
+            
+            if preset_style == "Modern Pill Badge":
+                d_badge.text((lx, curr_y), line, font=font, fill=fill_col, stroke_width=2, stroke_fill=(0, 0, 0, 255))
+            elif preset_style == "Neon Glow":
+                glow_col = (fill_col[0], fill_col[1], fill_col[2], 90)
+                for offset in [(3,3), (-3,-3), (3,-3), (-3,3), (0,4), (4,0)]:
+                    d_badge.text((lx + offset[0], curr_y + offset[1]), line, font=font, fill=glow_col, stroke_width=stroke_w+3, stroke_fill=(0,0,0,90))
+                d_badge.text((lx, curr_y), line, font=font, fill=(255, 255, 255), stroke_width=stroke_w, stroke_fill=(0, 0, 0, 255))
+            elif preset_style == "Clean Minimalist":
+                if s_alpha > 0:
+                    d_badge.text((lx + s_offset, curr_y + s_offset), line, font=font, fill=(0, 0, 0, s_alpha))
+                d_badge.text((lx, curr_y), line, font=font, fill=fill_col)
+            else:  # Hormozi Viral Pop
+                if s_alpha > 0:
+                    d_badge.text((lx + s_offset, curr_y + s_offset), line, font=font, fill=(0, 0, 0, s_alpha), stroke_width=stroke_w, stroke_fill=(0, 0, 0, s_alpha))
+                d_badge.text((lx, curr_y), line, font=font, fill=fill_col, stroke_width=stroke_w, stroke_fill=(0, 0, 0, 255))
+                
+            curr_y += lh + line_spacing
 
-        else:  # Hormozi Viral Pop
-            if s_alpha > 0:
-                d_badge.text((text_x + s_offset, text_y + s_offset), text, font=font, fill=(0, 0, 0, s_alpha), stroke_width=stroke_w, stroke_fill=(0, 0, 0, s_alpha))
-            d_badge.text((text_x, text_y), text, font=font, fill=fill_col, stroke_width=stroke_w, stroke_fill=(0, 0, 0, 255))
-
-        max_allowed_w = int(vw * 0.52)
+        # Safe Width Auto-Fit
+        max_allowed_w = int(vw * 0.55)
         if not is_ttf or badge_w > max_allowed_w or badge_w < int(vw * 0.35):
             scaled_w = min(max_allowed_w, max(int(vw * 0.38), badge_w))
             scaled_h = int(badge_h * (scaled_w / float(badge_w)))
@@ -239,7 +250,7 @@ def create_subtitle_overlays(segments, position, color_name, preset_style, font_
 
 # ----------------- UI WORKSPACE -----------------
 st.title("🎬 CaptionVFX AI Studio Pro")
-st.caption("Precision Lip-Sync Subtitles • Hormozi 2-Word Pop • Safe Area Auto-Fit")
+st.caption("Automatic Waveform Lip-Sync • 1/2/3-Liner Structure • Safe Area Fit")
 
 uploaded_file = st.file_uploader("📤 Upload Video (MP4/MOV)", type=["mp4", "mov"])
 
@@ -279,8 +290,8 @@ if uploaded_file:
         st.video(input_path)
         st.markdown(f"""
         <div class="metric-card">
-            ⚡ <b>Canvas:</b> {vw}x{vh} (Safe Area Locked)<br>
-            ⏱️ <b>Duration:</b> {video_duration:.1f}s | Waveform Lip-Sync Active
+            ⚡ <b>Canvas:</b> {vw}x{vh} (Safe Zone Locked)<br>
+            ⏱️ <b>Duration:</b> {video_duration:.1f}s | Auto Waveform Lip-Sync Active
         </div>
         """, unsafe_allow_html=True)
 
@@ -295,6 +306,14 @@ if uploaded_file:
                     "Hinglish (Aap Kaise Ho)",
                     "Pure Hindi (आप कैसे हैं)",
                     "English"
+                ]
+            )
+            line_structure = st.selectbox(
+                "📑 Line Format / Layout",
+                [
+                    "2-Liner (2-3 Words - Fast Pop)",
+                    "1-Liner (1 Word - Hormozi Punch)",
+                    "3-Liner (4-5 Words - Standard)"
                 ]
             )
             preset_style = st.selectbox(
@@ -316,13 +335,12 @@ if uploaded_file:
                     "Hot Pink"
                 ]
             )
-            stroke_mode = st.selectbox("🖋️ Outline (Stroke)", ["Medium", "Bold", "Thin", "Ultra Thick"])
 
         with c2:
             position = st.selectbox("📍 Subtitle Position", ["Bottom", "Middle", "Top"])
             font_size_user = st.slider("🔤 Font Size", 30, 90, 54)
+            stroke_mode = st.selectbox("🖋️ Outline (Stroke)", ["Medium", "Bold", "Thin", "Ultra Thick"])
             shadow_mode = st.selectbox("🌘 Shadow Intensity", ["Soft Shadow", "Medium Shadow", "Off", "Strong Shadow"])
-            sync_offset = st.slider("⏱️ Subtitle Sync Offset (Early / Delay in sec)", -1.5, 1.5, 0.0, step=0.1, help="Peeche chhoot raha ho to slider ko Left (-ve) karein, aage bhaag raha ho to Right (+ve) karein")
 
         st.markdown("---")
         st.subheader("🚀 Video Enhancements")
@@ -345,26 +363,26 @@ if uploaded_file:
         progress_bar = st.progress(0)
         status_text = st.empty()
 
-        # 1. Audio Track Extraction
+        # 1. Clean Audio Extraction
         status_text.text("🎙️ Extracting Clean Audio Track...")
         progress_bar.progress(25)
         cmd_extract = f'"{FFMPEG_EXE}" -y -i "{input_path}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "{audio_path}"'
         subprocess.run(cmd_extract, shell=True, capture_output=True)
 
-        # 2. Precision Silence & Speech Boundary Detection
-        status_text.text("🤖 Aligning Lip-Sync with Waveform...")
+        # 2. Automatic Waveform Lip-Sync Detection
+        status_text.text("🤖 Detecting Speech Waveforms for Auto-Sync...")
         progress_bar.progress(50)
         
-        # Detect actual speech start (silence cutoff)
-        speech_start_time = 0.2
+        speech_start_time = 0.1
+        speech_end_time = float(video_duration)
         try:
-            silence_cmd = f'"{FFMPEG_EXE}" -i "{audio_path}" -af silencedetect=noise=-30dB:d=0.3 -f null - 2>&1'
+            silence_cmd = f'"{FFMPEG_EXE}" -i "{audio_path}" -af silencedetect=noise=-30dB:d=0.25 -f null - 2>&1'
             sil_proc = subprocess.run(silence_cmd, shell=True, capture_output=True, text=True)
-            match_sil = re.search(r'silence_end:\s*(\d+\.?\d*)', sil_proc.stdout + sil_proc.stderr)
-            if match_sil:
-                first_sound = float(match_sil.group(1))
-                if 0.0 < first_sound < (video_duration * 0.5):
-                    speech_start_time = max(0.1, first_sound - 0.1)
+            match_start = re.search(r'silence_end:\s*(\d+\.?\d*)', sil_proc.stdout + sil_proc.stderr)
+            if match_start:
+                first_sound = float(match_start.group(1))
+                if 0.0 < first_sound < (video_duration * 0.4):
+                    speech_start_time = max(0.05, first_sound - 0.08)
         except Exception:
             pass
 
@@ -379,19 +397,29 @@ if uploaded_file:
             except Exception:
                 recognized_text = ""
 
-        # Dynamic Lip-Sync Word Distributor
+        # Chunk logic based on Line Format
+        if "1-Liner" in line_structure:
+            chunk_size = 1
+        elif "3-Liner" in line_structure:
+            chunk_size = 4
+        else:
+            chunk_size = 2
+
         segments = []
         if recognized_text:
             words = recognized_text.split()
-            chunk_size = 2
             word_chunks = [words[i:i + chunk_size] for i in range(0, len(words), chunk_size)]
             
-            # Use active speech duration instead of entire video duration
-            active_duration = max(1.0, float(video_duration) - speech_start_time - 0.3)
+            # Divide exact active speaking duration
+            active_duration = max(0.8, speech_end_time - speech_start_time - 0.2)
             time_per_chunk = active_duration / max(1, len(word_chunks))
             
             for idx, chunk in enumerate(word_chunks):
-                raw_s = " ".join(chunk)
+                if chunk_size == 4 and len(chunk) > 2:
+                    raw_s = " ".join(chunk[:2]) + "\n" + " ".join(chunk[2:])
+                else:
+                    raw_s = " ".join(chunk)
+
                 if "Hinglish" in lang_mode:
                     display_s = devanagari_to_hinglish(raw_s)
                 elif "Pure Hindi" in lang_mode:
@@ -399,8 +427,8 @@ if uploaded_file:
                 else:
                     display_s = raw_s.upper()
 
-                st_val = max(0.0, speech_start_time + (idx * time_per_chunk) + sync_offset)
-                en_val = min(float(video_duration), speech_start_time + ((idx + 1) * time_per_chunk) + sync_offset)
+                st_val = max(0.0, speech_start_time + (idx * time_per_chunk))
+                en_val = min(float(video_duration), speech_start_time + ((idx + 1) * time_per_chunk))
 
                 segments.append({
                     'start': st_val,
@@ -415,7 +443,7 @@ if uploaded_file:
             ]
 
         # 3. Generate Overlays
-        status_text.text("🎨 Generating Precise Lip-Sync Overlays...")
+        status_text.text("🎨 Generating Formatted Overlays...")
         progress_bar.progress(70)
         overlays = create_subtitle_overlays(
             segments, position, primary_color, preset_style,
@@ -471,7 +499,7 @@ if uploaded_file:
 
         # 5. Output Video Display & Download
         if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
-            st.success("✅ Subtitles Synced Perfectly with Audio!")
+            st.success("✅ Subtitles Synced Automatically!")
             with open(output_path, "rb") as vid_file:
                 video_bytes = vid_file.read()
                 st.video(video_bytes)
@@ -480,10 +508,4 @@ if uploaded_file:
                     data=video_bytes,
                     file_name="viral_caption_reel.mp4",
                     mime="video/mp4",
-                    use_container_width=True
-                )
-        else:
-            st.error("Render issue. Please try again.")
-
-        gc.collect()
-        
+                    use
