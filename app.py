@@ -108,49 +108,67 @@ def devanagari_to_hinglish(text: str) -> str:
 
     return " ".join(output_words)
 
-# ----------------- CREATE OVERLAY IMAGES -----------------
+# ----------------- BIG VIRAL OVERLAY GENERATOR -----------------
 def create_subtitle_overlays(segments, position, color_name, font_size_val, out_dir):
     color_dict = {
-        "Yellow Highlight": (255, 230, 0),
-        "Neon Cyan": (0, 240, 255),
+        "Yellow Highlight": (255, 220, 0),
+        "Neon Cyan": (0, 245, 255),
         "Pure White": (255, 255, 255),
-        "Vibrant Green": (0, 255, 120),
+        "Vibrant Green": (0, 255, 128),
         "Hot Pink": (255, 20, 147)
     }
-    fill_col = color_dict.get(color_name, (255, 230, 0))
+    fill_col = color_dict.get(color_name, (255, 220, 0))
     os.makedirs(out_dir, exist_ok=True)
     
+    # Check standard available TrueType fonts for large rendering
+    font_candidates = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf"
+    ]
+    font_path = None
+    for f in font_candidates:
+        if os.path.exists(f):
+            font_path = f
+            break
+
     overlay_files = []
     for idx, seg in enumerate(segments):
         img = Image.new("RGBA", (1080, 1920), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
-        
-        text = seg['text'].strip()
-        try:
-            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size_val)
-        except:
+        text = seg['text'].strip().upper()
+
+        if font_path:
+            font = ImageFont.truetype(font_path, font_size_val)
+        else:
             font = ImageFont.load_default()
 
-        # Measure text
+        # Calculate bounding box
         bbox = draw.textbbox((0, 0), text, font=font)
         text_w = bbox[2] - bbox[0]
         text_h = bbox[3] - bbox[1]
 
+        # Centered X position
         x = (1080 - text_w) // 2
+        
+        # Position Y
         if position == "Top":
-            y = 200
+            y = 260
         elif position == "Middle":
             y = (1920 - text_h) // 2
         else:
-            y = 1550
+            y = 1450
 
-        # High-contrast background banner
-        pad = 20
-        banner_box = [x - pad, y - pad, x + text_w + pad, y + text_h + pad]
-        draw.rounded_rectangle(banner_box, radius=18, fill=(0, 0, 0, 190))
+        # Background badge box
+        pad_x = 35
+        pad_y = 20
+        banner_box = [x - pad_x, y - pad_y, x + text_w + pad_x, y + text_h + pad_y]
+        draw.rounded_rectangle(banner_box, radius=24, fill=(0, 0, 0, 205))
         
-        # Draw stroke and text
-        draw.text((x, y), text, font=font, fill=fill_col, stroke_width=4, stroke_fill=(0, 0, 0, 255))
+        # Heavy black stroke for viral readability
+        stroke_w = max(4, font_size_val // 16)
+        draw.text((x, y), text, font=font, fill=fill_col, stroke_width=stroke_w, stroke_fill=(0, 0, 0, 255))
         
         filename = os.path.join(out_dir, f"sub_{idx}.png")
         img.save(filename, "PNG")
@@ -160,7 +178,7 @@ def create_subtitle_overlays(segments, position, color_name, font_size_val, out_
 
 # ----------------- UI WORKSPACE -----------------
 st.title("🎬 CaptionVFX AI Studio Pro")
-st.caption("Zero-Dependency Subtitle Burner • Hinglish Auto-Romanizer • 4K Visual Boost")
+st.caption("Bold Viral Subtitles • Hinglish Auto-Romanize • 4K Visual Boost")
 
 uploaded_file = st.file_uploader("📤 Upload Video (MP4/MOV)", type=["mp4", "mov"])
 
@@ -193,7 +211,7 @@ if uploaded_file:
         st.video(input_path)
         st.markdown(f"""
         <div class="metric-card">
-            ⚡ <b>Subtitle Engine:</b> Direct Video Overlay<br>
+            ⚡ <b>Subtitle Engine:</b> Big Viral Overlay Engine<br>
             ⏱️ <b>Duration:</b> {video_duration:.1f}s | 🎯 1080x1920
         </div>
         """, unsafe_allow_html=True)
@@ -215,10 +233,9 @@ if uploaded_file:
         
         with c2:
             position = st.selectbox("📍 Subtitle Position", ["Bottom", "Middle", "Top"])
-            font_size = st.slider("🔤 Font Size", 40, 90, 64)
+            font_size = st.slider("🔤 Font Size", 50, 140, 95)
 
-        # Custom text fallback editor (Always gives 100% control)
-        custom_override = st.text_input("✍️ Manual Subtitle Override (Optional)", placeholder="Audio auto-detect hoga, ya yahan custom text likhein")
+        custom_override = st.text_input("✍️ Manual Subtitle Override (Optional)", placeholder="Khaali chhoden (Auto-detect hoga)")
 
     if st.button("🚀 Render Subtitled Video", use_container_width=True):
         progress_bar = st.progress(0)
@@ -245,11 +262,11 @@ if uploaded_file:
             except Exception:
                 recognized_text = ""
 
-        # Divide into reel chunks
+        # Divide into small punchy chunks
         segments = []
         if recognized_text:
             words = recognized_text.split()
-            chunk_size = 3
+            chunk_size = 2
             word_chunks = [words[i:i + chunk_size] for i in range(0, len(words), chunk_size)]
             time_per_chunk = float(video_duration) / max(1, len(word_chunks))
             
@@ -274,12 +291,12 @@ if uploaded_file:
                 {'start': video_duration/2, 'end': video_duration, 'text': 'VIRAL VIDEO REEL'}
             ]
 
-        # 3. Create High-Resolution PNG Overlays
-        status_text.text("🎨 Generating Graphic Captions...")
+        # 3. Create Big PNG Overlays
+        status_text.text("🎨 Generating Large Viral Captions...")
         progress_bar.progress(70)
         overlays = create_subtitle_overlays(segments, position, primary_color, font_size, overlays_dir)
 
-        # 4. Build Multi-Overlay Direct Filter
+        # 4. Multi-Overlay Filter Burn
         status_text.text("⚡ Burning Captions onto Video...")
         progress_bar.progress(85)
         
@@ -297,7 +314,7 @@ if uploaded_file:
         input_args_str = " ".join(input_args)
 
         cmd_render = f'"{FFMPEG_EXE}" -y {input_args_str} -filter_complex "{filter_complex_str}" -map "[{last_v}]" -map 0:a? -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac "{output_path}"'
-        render_proc = subprocess.run(cmd_render, shell=True, capture_output=True, text=True)
+        subprocess.run(cmd_render, shell=True, capture_output=True)
 
         progress_bar.progress(100)
         status_text.empty()
@@ -316,7 +333,7 @@ if uploaded_file:
                     use_container_width=True
                 )
         else:
-            st.error(f"Render issue: {render_proc.stderr[-300:] if render_proc.stderr else 'Unknown'}")
+            st.error("Render issue. Please try again.")
 
         gc.collect()
-            
+    
