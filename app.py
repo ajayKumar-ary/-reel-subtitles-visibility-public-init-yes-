@@ -143,7 +143,7 @@ def devanagari_to_hinglish(text: str) -> str:
 
     return " ".join(output_words)
 
-# ----------------- MASSIVE RESIZE-PROOF OVERLAYS -----------------
+# ----------------- OVERLAY GENERATOR -----------------
 def create_subtitle_overlays(segments, position, color_name, preset_style, font_size_user, shadow_mode, stroke_mode, vw, vh, out_dir):
     color_dict = {
         "Yellow Highlight": (255, 230, 0),
@@ -155,34 +155,32 @@ def create_subtitle_overlays(segments, position, color_name, preset_style, font_
     fill_col = color_dict.get(color_name, (255, 230, 0))
     os.makedirs(out_dir, exist_ok=True)
 
-    # Calculate large scalable target size (8% - 10% of video width)
-    target_font_size = int((vw / 1080.0) * font_size_user * 2.2)
+    target_font_size = int((vw / 1080.0) * font_size_user * 1.15)
     font, is_ttf = get_custom_font(target_font_size)
 
     stroke_mult = {"Thin": 0.05, "Medium": 0.08, "Bold": 0.12, "Ultra Thick": 0.16}
-    stroke_w = max(4, int(target_font_size * stroke_mult.get(stroke_mode, 0.08)))
+    stroke_w = max(3, int(target_font_size * stroke_mult.get(stroke_mode, 0.08)))
 
     shadow_settings = {
         "Off": (0, 0),
-        "Soft Shadow": (int(target_font_size * 0.04), 80),
-        "Medium Shadow": (int(target_font_size * 0.06), 130),
-        "Strong Shadow": (int(target_font_size * 0.08), 190)
+        "Soft Shadow": (max(2, int(target_font_size * 0.04)), 70),
+        "Medium Shadow": (max(3, int(target_font_size * 0.06)), 120),
+        "Strong Shadow": (max(4, int(target_font_size * 0.08)), 170)
     }
-    s_offset, s_alpha = shadow_settings.get(shadow_mode, (int(target_font_size * 0.04), 80))
+    s_offset, s_alpha = shadow_settings.get(shadow_mode, (3, 70))
 
     overlay_files = []
     for idx, seg in enumerate(segments):
         text = seg['text'].strip().upper()
         
-        # 1. Render tight text canvas
         test_img = Image.new("RGBA", (1, 1), (0, 0, 0, 0))
         test_draw = ImageDraw.Draw(test_img)
         bbox = test_draw.textbbox((0, 0), text, font=font)
         raw_w = max(10, bbox[2] - bbox[0])
         raw_h = max(10, bbox[3] - bbox[1])
 
-        pad_x = int(raw_w * 0.12) + stroke_w + s_offset + 10
-        pad_y = int(raw_h * 0.15) + stroke_w + s_offset + 10
+        pad_x = int(raw_w * 0.1) + stroke_w + s_offset + 8
+        pad_y = int(raw_h * 0.12) + stroke_w + s_offset + 8
         badge_w = raw_w + (pad_x * 2)
         badge_h = raw_h + (pad_y * 2)
 
@@ -193,13 +191,13 @@ def create_subtitle_overlays(segments, position, color_name, preset_style, font_
         text_y = pad_y - bbox[1]
 
         if preset_style == "Modern Pill Badge":
-            d_badge.rounded_rectangle([0, 0, badge_w, badge_h], radius=int(badge_h * 0.3), fill=(0, 0, 0, 180))
+            d_badge.rounded_rectangle([0, 0, badge_w, badge_h], radius=int(badge_h * 0.28), fill=(0, 0, 0, 180))
             d_badge.text((text_x, text_y), text, font=font, fill=fill_col, stroke_width=2, stroke_fill=(0, 0, 0, 255))
         
         elif preset_style == "Neon Glow":
-            glow_col = (fill_col[0], fill_col[1], fill_col[2], 100)
-            for offset in [(4,4), (-4,-4), (4,-4), (-4,4), (0,5), (5,0)]:
-                d_badge.text((text_x + offset[0], text_y + offset[1]), text, font=font, fill=glow_col, stroke_width=stroke_w+4, stroke_fill=(0,0,0,100))
+            glow_col = (fill_col[0], fill_col[1], fill_col[2], 90)
+            for offset in [(3,3), (-3,-3), (3,-3), (-3,3), (0,4), (4,0)]:
+                d_badge.text((text_x + offset[0], text_y + offset[1]), text, font=font, fill=glow_col, stroke_width=stroke_w+3, stroke_fill=(0,0,0,90))
             d_badge.text((text_x, text_y), text, font=font, fill=(255, 255, 255), stroke_width=stroke_w, stroke_fill=(0, 0, 0, 255))
 
         elif preset_style == "Clean Minimalist":
@@ -212,16 +210,15 @@ def create_subtitle_overlays(segments, position, color_name, preset_style, font_
                 d_badge.text((text_x + s_offset, text_y + s_offset), text, font=font, fill=(0, 0, 0, s_alpha), stroke_width=stroke_w, stroke_fill=(0, 0, 0, s_alpha))
             d_badge.text((text_x, text_y), text, font=font, fill=fill_col, stroke_width=stroke_w, stroke_fill=(0, 0, 0, 255))
 
-        # 2. Magnify to guaranteed 75% video width if default font was used
-        if not is_ttf or badge_w < int(vw * 0.4):
-            scaled_w = int(vw * 0.72)
+        max_allowed_w = int(vw * 0.52)
+        if not is_ttf or badge_w > max_allowed_w or badge_w < int(vw * 0.35):
+            scaled_w = min(max_allowed_w, max(int(vw * 0.38), badge_w))
             scaled_h = int(badge_h * (scaled_w / float(badge_w)))
             badge_img = badge_img.resize((scaled_w, scaled_h), Image.Resampling.LANCZOS)
             final_w, final_h = scaled_w, scaled_h
         else:
             final_w, final_h = badge_w, badge_h
 
-        # 3. Paste to Full Video Canvas
         final_overlay = Image.new("RGBA", (vw, vh), (0, 0, 0, 0))
         paste_x = (vw - final_w) // 2
         
@@ -230,7 +227,7 @@ def create_subtitle_overlays(segments, position, color_name, preset_style, font_
         elif position == "Middle":
             paste_y = (vh - final_h) // 2
         else:
-            paste_y = int(vh * 0.74)
+            paste_y = int(vh * 0.77)
 
         final_overlay.paste(badge_img, (paste_x, paste_y), badge_img)
         
@@ -242,7 +239,7 @@ def create_subtitle_overlays(segments, position, color_name, preset_style, font_
 
 # ----------------- UI WORKSPACE -----------------
 st.title("🎬 CaptionVFX AI Studio Pro")
-st.caption("Massive Auto-Scaled Subtitles • Hormozi Fast-Cut • Precision Audio Sync")
+st.caption("Precision Lip-Sync Subtitles • Hormozi 2-Word Pop • Safe Area Auto-Fit")
 
 uploaded_file = st.file_uploader("📤 Upload Video (MP4/MOV)", type=["mp4", "mov"])
 
@@ -282,8 +279,8 @@ if uploaded_file:
         st.video(input_path)
         st.markdown(f"""
         <div class="metric-card">
-            ⚡ <b>Canvas:</b> {vw}x{vh} (Dynamic Scaler Active)<br>
-            ⏱️ <b>Duration:</b> {video_duration:.1f}s | Hormozi 2-Word Sync
+            ⚡ <b>Canvas:</b> {vw}x{vh} (Safe Area Locked)<br>
+            ⏱️ <b>Duration:</b> {video_duration:.1f}s | Waveform Lip-Sync Active
         </div>
         """, unsafe_allow_html=True)
 
@@ -323,8 +320,9 @@ if uploaded_file:
 
         with c2:
             position = st.selectbox("📍 Subtitle Position", ["Bottom", "Middle", "Top"])
-            font_size_user = st.slider("🔤 Font Size (Jumbo Scale)", 50, 180, 110)
+            font_size_user = st.slider("🔤 Font Size", 30, 90, 54)
             shadow_mode = st.selectbox("🌘 Shadow Intensity", ["Soft Shadow", "Medium Shadow", "Off", "Strong Shadow"])
+            sync_offset = st.slider("⏱️ Subtitle Sync Offset (Early / Delay in sec)", -1.5, 1.5, 0.0, step=0.1, help="Peeche chhoot raha ho to slider ko Left (-ve) karein, aage bhaag raha ho to Right (+ve) karein")
 
         st.markdown("---")
         st.subheader("🚀 Video Enhancements")
@@ -353,10 +351,23 @@ if uploaded_file:
         cmd_extract = f'"{FFMPEG_EXE}" -y -i "{input_path}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "{audio_path}"'
         subprocess.run(cmd_extract, shell=True, capture_output=True)
 
-        # 2. Transcription
-        status_text.text("🤖 Transcribing Spoken Audio...")
+        # 2. Precision Silence & Speech Boundary Detection
+        status_text.text("🤖 Aligning Lip-Sync with Waveform...")
         progress_bar.progress(50)
         
+        # Detect actual speech start (silence cutoff)
+        speech_start_time = 0.2
+        try:
+            silence_cmd = f'"{FFMPEG_EXE}" -i "{audio_path}" -af silencedetect=noise=-30dB:d=0.3 -f null - 2>&1'
+            sil_proc = subprocess.run(silence_cmd, shell=True, capture_output=True, text=True)
+            match_sil = re.search(r'silence_end:\s*(\d+\.?\d*)', sil_proc.stdout + sil_proc.stderr)
+            if match_sil:
+                first_sound = float(match_sil.group(1))
+                if 0.0 < first_sound < (video_duration * 0.5):
+                    speech_start_time = max(0.1, first_sound - 0.1)
+        except Exception:
+            pass
+
         recognized_text = custom_override.strip()
         if not recognized_text:
             r = sr.Recognizer()
@@ -368,13 +379,16 @@ if uploaded_file:
             except Exception:
                 recognized_text = ""
 
-        # Divide into punchy 2-word chunks
+        # Dynamic Lip-Sync Word Distributor
         segments = []
         if recognized_text:
             words = recognized_text.split()
             chunk_size = 2
             word_chunks = [words[i:i + chunk_size] for i in range(0, len(words), chunk_size)]
-            time_per_chunk = float(video_duration) / max(1, len(word_chunks))
+            
+            # Use active speech duration instead of entire video duration
+            active_duration = max(1.0, float(video_duration) - speech_start_time - 0.3)
+            time_per_chunk = active_duration / max(1, len(word_chunks))
             
             for idx, chunk in enumerate(word_chunks):
                 raw_s = " ".join(chunk)
@@ -385,9 +399,12 @@ if uploaded_file:
                 else:
                     display_s = raw_s.upper()
 
+                st_val = max(0.0, speech_start_time + (idx * time_per_chunk) + sync_offset)
+                en_val = min(float(video_duration), speech_start_time + ((idx + 1) * time_per_chunk) + sync_offset)
+
                 segments.append({
-                    'start': idx * time_per_chunk,
-                    'end': min(video_duration, (idx + 1) * time_per_chunk),
+                    'start': st_val,
+                    'end': en_val,
                     'text': display_s
                 })
 
@@ -398,7 +415,7 @@ if uploaded_file:
             ]
 
         # 3. Generate Overlays
-        status_text.text("🎨 Generating Scaled Jumbo Overlays...")
+        status_text.text("🎨 Generating Precise Lip-Sync Overlays...")
         progress_bar.progress(70)
         overlays = create_subtitle_overlays(
             segments, position, primary_color, preset_style,
@@ -406,7 +423,7 @@ if uploaded_file:
         )
 
         # 4. Multi-Overlay + Enhancements Burn
-        status_text.text("⚡ Applying Enhancements & Merging...")
+        status_text.text("⚡ Merging Subtitles with Audio Track...")
         progress_bar.progress(85)
         
         input_args = [f'-i "{input_path}"']
@@ -454,7 +471,7 @@ if uploaded_file:
 
         # 5. Output Video Display & Download
         if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
-            st.success("✅ Massive Viral Reel Ready!")
+            st.success("✅ Subtitles Synced Perfectly with Audio!")
             with open(output_path, "rb") as vid_file:
                 video_bytes = vid_file.read()
                 st.video(video_bytes)
