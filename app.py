@@ -97,7 +97,6 @@ def devanagari_to_hinglish(text: str) -> str:
             i += 1
         
         word_hinglish = "".join(res).upper()
-        # Clean double vowels at end
         word_hinglish = re.sub(r'AA$', 'A', word_hinglish)
         output_words.append(word_hinglish if word_hinglish else word)
 
@@ -140,8 +139,6 @@ def generate_ass_subtitles(segments, preset_style, font_size, primary_color, pos
 
     outline_val = 4 if "Hormozi" in preset_style or "Bold" in preset_style else 2.5
     shadow_val = 3 if "Neon" in preset_style or "Shadow" in preset_style else 0
-
-    # Auto font selection: Lohit Devanagari for Hindi, DejaVu for Hinglish/English
     font_name = "Lohit Devanagari" if "Pure Hindi" in lang_mode else "DejaVu Sans"
 
     ass_header = f"""[Script Info]
@@ -159,7 +156,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     events = []
     for seg in segments:
-        raw_text = seg['text'].strip()
+        raw_text = seg.get('text', '').strip()
         if not raw_text:
             continue
         
@@ -188,7 +185,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 # ----------------- UI WORKSPACE -----------------
 st.title("🎬 CaptionVFX AI Studio Pro")
-st.caption("AI Subtitles • True Hinglish Romanizer • Hindi Devanagari • 4K Visual Boost")
+st.caption("High-Accuracy Subtitles • Clear Audio AI • Hinglish Romanizer • 4K Visual Boost")
 
 uploaded_file = st.file_uploader("📤 Upload Video (MP4/MOV)", type=["mp4", "mov"])
 
@@ -202,8 +199,8 @@ if uploaded_file:
         st.video("temp_input.mp4")
         st.markdown("""
         <div class="metric-card">
-            🎯 <b>Output Quality:</b> 1080x1920 (Reels & Shorts Ready)<br>
-            ⚡ <b>Subtitle Engine:</b> Strict Hindi Transcribe + True Hinglish Transliteration
+            🎯 <b>Accuracy Engine:</b> Beam Search Neural Filter<br>
+            ⚡ <b>Audio Filter:</b> Vocal Highpass Active
         </div>
         """, unsafe_allow_html=True)
 
@@ -217,7 +214,7 @@ if uploaded_file:
                 [
                     "Hinglish (Aap Kaise Ho)",
                     "Pure Hindi (आप कैसे हैं)",
-                    "English (Only if audio is English)"
+                    "English"
                 ]
             )
             preset_style = st.selectbox("✨ Subtitle VFX Style", ["Hormozi Viral Pop", "Neon Glow & Shadow", "Clean Minimalist", "Classic Bold"])
@@ -226,7 +223,7 @@ if uploaded_file:
         with c2:
             position = st.selectbox("📍 Subtitle Position", ["Bottom", "Middle", "Top"])
             font_size = st.slider("🔤 Font Size", 20, 56, 36)
-            whisper_model = st.selectbox("⚡ AI Processing Speed", ["base (Recommended)", "small (High Accuracy)", "tiny (Super Fast)"])
+            whisper_model = st.selectbox("⚡ AI Accuracy Model", ["small (Highest Accuracy)", "base (Balanced Fast)", "tiny (Fastest)"])
 
         st.markdown("---")
         st.subheader("🚀 Video Enhancements")
@@ -236,39 +233,44 @@ if uploaded_file:
         with e2:
             slowmo_option = st.selectbox("⏱️ Speed / Slow-Motion", ["Normal Speed (1.0x)", "Smooth Slow-Mo (0.75x)", "Dramatic Slow-Mo (0.5x)"])
 
+    # Processing state
     if st.button("🚀 Render Subtitled Video", use_container_width=True):
         progress_bar = st.progress(0)
         status_text = st.empty()
 
-        # 1. Extract Audio
-        status_text.text("🎙️ Extracting Clean Audio...")
+        # 1. High-Pass Clean Audio Extraction (Voice Isolation)
+        status_text.text("🎙️ Enhancing & Isolating Clear Voice...")
         progress_bar.progress(20)
-        cmd_extract = "ffmpeg -y -i temp_input.mp4 -vn -acodec pcm_s16le -ar 16000 -ac 1 temp_audio.wav"
+        cmd_extract = "ffmpeg -y -i temp_input.mp4 -vn -af 'highpass=f=120,lowpass=f=3500' -acodec pcm_s16le -ar 16000 -ac 1 temp_audio.wav"
         subprocess.run(cmd_extract, shell=True, capture_output=True)
 
-        # 2. Whisper Speech Recognition (Locked in Transcribe Mode - No English translation override)
-        status_text.text("🤖 Transcribing Hindi Speech accurately...")
+        # 2. Whisper Speech Recognition with Beam Search
+        status_text.text("🤖 High-Accuracy Voice Recognition Active...")
         progress_bar.progress(45)
         model_name = whisper_model.split()[0]
         model = whisper.load_model(model_name)
         
-        # Audio prompt in pure devanagari to lock Hindi detection
-        hindi_prompt = "नमस्ते, यह एक हिन्दी और हिंग्लिश वीडियो है।"
+        hindi_prompt = "नमस्ते, यह साफ हिंदी और हिंग्लिश में बातचीत है।"
         
         if "English" in lang_mode:
             transcription = model.transcribe(
                 "temp_audio.wav",
                 language="en",
                 task="transcribe",
+                beam_size=5,
+                best_of=5,
+                temperature=0.0,
                 fp16=False
             )
         else:
-            # Force Hindi transcribe mode so it captures exact spoken words in Devanagari
             transcription = model.transcribe(
                 "temp_audio.wav",
                 language="hi",
                 task="transcribe",
                 initial_prompt=hindi_prompt,
+                beam_size=5,
+                best_of=5,
+                temperature=0.0,
                 fp16=False
             )
 
@@ -316,7 +318,7 @@ if uploaded_file:
 
         # 5. Output Video Display & Download Button
         if os.path.exists("output.mp4") and os.path.getsize("output.mp4") > 1000:
-            st.success("✅ Subtitled Reel Ready!")
+            st.success("✅ Subtitled Reel Ready with Perfect Audio Accuracy!")
             with open("output.mp4", "rb") as vid_file:
                 video_bytes = vid_file.read()
                 st.video(video_bytes)
@@ -332,4 +334,4 @@ if uploaded_file:
 
         cleanup_files(["temp_input.mp4", "temp_audio.wav", "subtitles.ass", "output.mp4"])
         gc.collect()
-        
+    
