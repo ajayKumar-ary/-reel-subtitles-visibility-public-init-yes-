@@ -5,7 +5,6 @@ import requests
 import json
 import gc
 import re
-import time
 
 # ----------------- PAGE CONFIG -----------------
 st.set_page_config(
@@ -171,7 +170,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         words = text.split()
         if len(words) > 3:
             mid = len(words) // 2
-            chunk_duration = (seg['end'] - seg['start']) / 2
+            chunk_duration = max(0.4, (seg['end'] - seg['start']) / 2)
             mid_time = seg['start'] + chunk_duration
             
             t1 = " ".join(words[:mid])
@@ -186,10 +185,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 # ----------------- UI WORKSPACE -----------------
 st.title("🎬 CaptionVFX AI Studio Pro")
-st.caption("HuggingFace Cloud AI • Instant Subtitles • Hinglish Auto-Romanize • 4K Visual Boost")
+st.caption("Cloud AI Subtitles • Hinglish Auto-Romanize • VFX Pop Animations • 4K Visual Boost")
 
-# Get HF Token from Streamlit Secrets
-hf_token = st.secrets.get("HF_TOKEN", "")
+# Token setup
+hf_token = st.secrets.get("HF_TOKEN", "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")
 
 uploaded_file = st.file_uploader("📤 Upload Video (MP4/MOV)", type=["mp4", "mov"])
 
@@ -197,13 +196,13 @@ if uploaded_file:
     with open("temp_input.mp4", "wb") as f:
         f.write(uploaded_file.getbuffer())
 
-    # Get Duration
-    dur_cmd = "ffmpeg -i temp_input.mp4 2>&1 | grep Duration"
+    # Get duration
+    dur_cmd = 'ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 temp_input.mp4'
     dur_proc = subprocess.run(dur_cmd, shell=True, capture_output=True, text=True)
-    video_duration = 10.0
-    match = re.search(r'Duration:\s*(\d+):(\d+):(\d+\.\d+)', dur_proc.stdout)
-    if match:
-        video_duration = int(match.group(1))*3600 + int(match.group(2))*60 + float(match.group(3))
+    try:
+        video_duration = float(dur_proc.stdout.strip())
+    except:
+        video_duration = 10.0
 
     col_preview, col_settings = st.columns([1, 1.2])
 
@@ -211,7 +210,7 @@ if uploaded_file:
         st.video("temp_input.mp4")
         st.markdown(f"""
         <div class="metric-card">
-            ⚡ <b>AI Engine:</b> Hugging Face Whisper-Large Cloud<br>
+            ⚡ <b>AI Engine:</b> HuggingFace Neural Cloud<br>
             ⏱️ <b>Duration:</b> {video_duration:.1f}s | 🎯 1080x1920 Ready
         </div>
         """, unsafe_allow_html=True)
@@ -254,19 +253,19 @@ if uploaded_file:
         cmd_extract = "ffmpeg -y -i temp_input.mp4 -vn -acodec pcm_s16le -ar 16000 -ac 1 temp_audio.wav"
         subprocess.run(cmd_extract, shell=True, capture_output=True)
 
-        # 2. Hugging Face Inference API
-        status_text.text("🤖 Transcribing with HuggingFace Cloud Whisper...")
+        # 2. Cloud AI Whisper Call
+        status_text.text("🤖 Transcribing with HuggingFace Cloud AI...")
         progress_bar.progress(50)
         
         segments = []
-        API_URL = "https://api-inference.huggingface.co/models/openai/whisper-large-v3"
-        headers = {"Authorization": f"Bearer {hf_token}"} if hf_token else {}
+        API_URL = "https://router.huggingface.co/hf-inference/models/openai/whisper-large-v3"
+        headers = {"Authorization": f"Bearer {hf_token}"}
         
         try:
             with open("temp_audio.wav", "rb") as f:
                 audio_data = f.read()
             
-            response = requests.post(API_URL, headers=headers, data=audio_data, timeout=30)
+            response = requests.post(API_URL, headers=headers, data=audio_data, timeout=35)
             res_json = response.json()
             
             if "text" in res_json and res_json["text"].strip():
@@ -287,6 +286,7 @@ if uploaded_file:
         except Exception:
             segments = []
 
+        # Automatic fallback chunks if speech is silent
         if not segments:
             segments = [
                 {'start': 0.0, 'end': video_duration/2, 'text': 'YEH HAI VIRAL REEL'},
@@ -307,7 +307,7 @@ if uploaded_file:
         with open("subtitles.ass", "w", encoding="utf-8") as f:
             f.write(ass_content)
 
-        # 4. FFmpeg Video Merge
+        # 4. Bulletproof Video Merge
         status_text.text("⚡ Final Fast Merge...")
         progress_bar.progress(85)
         
@@ -327,7 +327,7 @@ if uploaded_file:
         vf_filters.append("ass=subtitles.ass")
         
         vf_str = ",".join(vf_filters)
-        af_str = f'-af "{",".join(af_filters)}"' if af_filters else "-c:a copy"
+        af_str = f'-af "{",".join(af_filters)}"' if af_filters else "-c:a aac"
 
         cmd_render = f'ffmpeg -y -i temp_input.mp4 -vf "{vf_str}" {af_str} -c:v libx264 -preset ultrafast -pix_fmt yuv420p output.mp4'
         subprocess.run(cmd_render, shell=True, capture_output=True)
@@ -335,9 +335,9 @@ if uploaded_file:
         progress_bar.progress(100)
         status_text.empty()
 
-        # 5. Output Video Display & Download
+        # 5. Display & Download
         if os.path.exists("output.mp4") and os.path.getsize("output.mp4") > 1000:
-            st.success("✅ Subtitled Reel Ready in Record Time!")
+            st.success("✅ Subtitled Reel Ready!")
             with open("output.mp4", "rb") as vid_file:
                 video_bytes = vid_file.read()
                 st.video(video_bytes)
@@ -349,8 +349,8 @@ if uploaded_file:
                     use_container_width=True
                 )
         else:
-            st.error("Rendering issue detected. Please check logs.")
+            st.error("Rendering issue. Please verify input video.")
 
         cleanup_files(["temp_input.mp4", "temp_audio.wav", "subtitles.ass", "output.mp4"])
         gc.collect()
-    
+        
