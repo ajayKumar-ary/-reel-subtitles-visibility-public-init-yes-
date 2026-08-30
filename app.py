@@ -1,489 +1,202 @@
 import streamlit as st
-import subprocess
 import os
-import re
-import cv2
+import subprocess
+import whisper
 import gc
-import numpy as np
-import sqlite3
-import hashlib
-import random
-import smtplib
-import cloudinary
-import cloudinary.uploader
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from faster_whisper import WhisperModel
-from indic_transliteration import sanscript
-from indic_transliteration.sanscript import transliterate
+import re
+import tempfile
 
-# ==================== 1. PAGE CONFIG & STYLING ====================
+# ----------------- PAGE CONFIG -----------------
 st.set_page_config(
     page_title="CaptionVFX AI Studio Pro",
     page_icon="🎬",
-    layout="wide",
+    layout="centered",
     initial_sidebar_state="expanded"
 )
 
-# ----------------- CREDENTIALS -----------------
-SMTP_SENDER_EMAIL = "tiwariajaykumar690@gmail.com"
-SMTP_SENDER_PASSWORD = "zcnqpshuswnhztto"
-
-CLOUDINARY_CLOUD_NAME = "mqzihwci"
-CLOUDINARY_API_KEY = "YOUR_API_KEY_HERE"
-CLOUDINARY_API_SECRET = "YOUR_API_SECRET_HERE"
-
-cloudinary.config(
-    cloud_name=CLOUDINARY_CLOUD_NAME,
-    api_key=CLOUDINARY_API_KEY,
-    api_secret=CLOUDINARY_API_SECRET,
-    secure=True
-)
-# -----------------------------------------------
-
+# ----------------- CUSTOM CSS -----------------
 st.markdown("""
 <style>
-    .stApp {
-        background: linear-gradient(rgba(15, 23, 42, 0.88), rgba(15, 23, 42, 0.88)), 
-                    url("https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe");
-        background-size: cover;
-        background-position: center;
-        background-attachment: fixed;
-    }
-    [data-testid="stSidebar"] {
-        background-color: rgba(15, 23, 42, 0.95) !important;
-        backdrop-filter: blur(12px);
-    }
-    .main-title {
-        text-align: center;
-        padding: 0.8rem;
-        background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-        border-radius: 10px;
+    .main { background-color: #0f172a; color: #ffffff; }
+    .stButton>button {
+        background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
         color: white;
-        margin-bottom: 1.5rem;
+        border: none;
+        border-radius: 10px;
+        padding: 0.6rem 1.2rem;
+        font-weight: 600;
+        transition: all 0.3s ease;
     }
-    .main-title h2 { color: white !important; margin: 0; font-weight: 700; }
-    .main-title p { margin: 0.2rem 0 0 0; color: #e0e7ff; font-size: 0.95rem; }
-    .stButton button {
-        background: linear-gradient(90deg, #4f46e5, #7c3aed) !important;
-        color: white !important;
-        font-weight: 700 !important;
-        height: 3rem !important;
-        border-radius: 8px !important;
+    .stButton>button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
     }
-    .auth-container {
-        max-width: 450px;
-        margin: 1.5rem auto;
-        padding: 2rem;
-        background: rgba(15, 23, 42, 0.8);
-        backdrop-filter: blur(16px);
-        border-radius: 20px;
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
-        text-align: center;
-    }
-    .auth-title {
-        font-size: 1.8rem;
-        font-weight: 800;
-        background: linear-gradient(135deg, #60a5fa, #a855f7);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-bottom: 0.2rem;
-    }
-    .auth-sub { color: #94a3b8; font-size: 0.9rem; margin-bottom: 1.5rem; }
 </style>
 """, unsafe_allow_html=True)
 
-# ==================== 2. DATABASE & OTP ENGINE ====================
-DB_FILE = "users_studio.db"
+# ----------------- HELPER FUNCTIONS -----------------
+def format_timestamp_ass(seconds: float) -> str:
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = seconds % 60
+    return f"{hours:01d}:{minutes:02d}:{secs:05.2f}"
 
-def init_db():
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("CREATE TABLE IF NOT EXISTS users (email TEXT PRIMARY KEY, password TEXT NOT NULL)")
-    conn.commit()
-    conn.close()
-
-init_db()
-
-def hash_pw(pw):
-    return hashlib.sha256(pw.encode()).hexdigest()
-
-def register_user(email, pw):
-    email = email.strip().lower()
-    try:
-        conn = sqlite3.connect(DB_FILE)
-        c = conn.cursor()
-        c.execute("INSERT INTO users (email, password) VALUES (?, ?)", (email, hash_pw(pw)))
-        conn.commit()
-        conn.close()
-        return True
-    except Exception:
-        return False
-
-def verify_user(email, pw):
-    email = email.strip().lower()
-    try:
-        conn = sqlite3.connect(DB_FILE)
-        c = conn.cursor()
-        c.execute("SELECT password FROM users WHERE email = ?", (email,))
-        row = c.fetchone()
-        conn.close()
-        if row and row[0] == hash_pw(pw):
-            return True
-        return False
-    except Exception:
-        return False
-
-def send_otp(target, code):
-    try:
-        msg = MIMEMultipart()
-        msg["From"] = "CaptionVFX AI Studio <" + SMTP_SENDER_EMAIL + ">"
-        msg["To"] = target
-        msg["Subject"] = "Your Verification OTP: " + str(code) + " - CaptionVFX Studio"
-        body = "Your CaptionVFX OTP code is: " + str(code) + "\n\nValid for 10 minutes."
-        msg.attach(MIMEText(body, "plain"))
-        server = smtplib.SMTP("smtp.gmail.com", 587)
-        server.starttls()
-        server.login(SMTP_SENDER_EMAIL, SMTP_SENDER_PASSWORD)
-        server.send_message(msg)
-        server.quit()
-        return True
-    except Exception:
-        return False
-
-def upload_video_to_cloud(video_path):
-    try:
-        res = cloudinary.uploader.upload(video_path, resource_type="video", folder="captionvfx_reels")
-        return res.get("secure_url")
-    except Exception:
-        return None
-
-def cleanup_files(file_list):
-    for path in file_list:
-        if os.path.exists(path):
+def cleanup_files(files_list):
+    for f in files_list:
+        if os.path.exists(f):
             try:
-                os.remove(path)
+                os.remove(f)
             except Exception:
                 pass
 
-# Session State
-if "logged_in" not in st.session_state:
-    st.session_state["logged_in"] = False
-if "user_email" not in st.session_state:
-    st.session_state["user_email"] = ""
-if "otp_code" not in st.session_state:
-    st.session_state["otp_code"] = None
-if "otp_target" not in st.session_state:
-    st.session_state["otp_target"] = ""
+# ----------------- SUBTITLE GENERATOR -----------------
+def generate_ass_subtitles(segments, font_style, font_size, primary_color, outline_color, position):
+    # Position: Bottom (2), Middle (5), Top (8)
+    align_val = 2
+    margin_v = 40
+    if position == "Middle":
+        align_val = 5
+        margin_v = 0
+    elif position == "Top":
+        align_val = 8
+        margin_v = 40
 
-# ==================== AUTH SCREEN ====================
-if not st.session_state["logged_in"]:
-    col_l, col_center, col_r = st.columns([1, 1.4, 1])
-    with col_center:
-        st.markdown("""
-        <div class="auth-container">
-            <div class="auth-title">CaptionVFX AI Studio</div>
-            <div class="auth-sub">Enter Email & Verify OTP to Unlock All VFX Tools</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        t1, t2 = st.tabs(["🔑 Sign In", "📝 Create Account (OTP)"])
-        
-        with t1:
-            l_email = st.text_input("Email", key="l_em")
-            l_pass = st.text_input("Password", type="password", key="l_pw")
-            if st.button("Login to Studio 🚀", use_container_width=True):
-                if verify_user(l_email, l_pass):
-                    st.session_state["logged_in"] = True
-                    st.session_state["user_email"] = l_email.strip().lower()
-                    st.rerun()
-                else:
-                    st.error("Invalid Email ya Password!")
-
-        with t2:
-            r_email = st.text_input("Your Email", key="r_em")
-            if st.button("📩 Send OTP", use_container_width=True):
-                if "@" in r_email and "." in r_email:
-                    gen_code = str(random.randint(100000, 999999))
-                    if send_otp(r_email.strip().lower(), gen_code):
-                        st.session_state["otp_code"] = gen_code
-                        st.session_state["otp_target"] = r_email.strip().lower()
-                        st.success("OTP sent! Apni email check karein.")
-                    else:
-                        st.error("Email send nahi ho paya. Email address check karein.")
-                else:
-                    st.warning("Valid email address daalein.")
-
-            if st.session_state["otp_code"]:
-                st.info("OTP sent to: `" + st.session_state["otp_target"] + "`")
-                user_otp = st.text_input("Enter 6-Digit OTP", max_chars=6, key="in_otp")
-                r_pass = st.text_input("Create Password", type="password", key="in_pw")
-                if st.button("✅ Verify OTP & Register", use_container_width=True):
-                    if user_otp.strip() == st.session_state["otp_code"]:
-                        if register_user(st.session_state["otp_target"], r_pass):
-                            st.success("Account ban gaya! Ab Sign In tab se login karein.")
-                            st.session_state["otp_code"] = None
-                        else:
-                            st.warning("Yeh email pehle se registered hai.")
-                    else:
-                        st.error("Galat OTP code!")
-    st.stop()
-
-# ==================== 3. AI SUBTITLE & VFX ENGINE ====================
-@st.cache_resource
-def load_whisper():
-    tiny = WhisperModel("tiny", device="cpu", compute_type="int8", cpu_threads=2)
-    base = WhisperModel("base", device="cpu", compute_type="int8", cpu_threads=2)
-    return tiny, base
-
-tiny_model, base_model = load_whisper()
-
-def format_ass_time(sec):
-    h = int(sec // 3600)
-    m = int((sec % 3600) // 60)
-    s = int(sec % 60)
-    cs = int((sec - int(sec)) * 100)
-    return "{:d}:{:02d}:{:02d}.{:02d}".format(h, m, s, cs)
-
-def clean_to_roman(text):
-    if re.search(r'[\u0900-\u097F]', text):
-        text = transliterate(text, sanscript.DEVANAGARI, sanscript.ITRANS)
-    text = re.sub(r'[\u0600-\u06FF\u0750-\u077F]', '', text)
-    return text.strip()
-
-def detect_best_contrast_color(video_path):
-    cap = cv2.VideoCapture(video_path)
-    cap.set(cv2.CAP_PROP_POS_MSEC, 1000)
-    success, frame = cap.read()
-    if not success or frame is None:
-        cap.set(cv2.CAP_PROP_POS_MSEC, 0)
-        success, frame = cap.read()
-    cap.release()
-    
-    if not success or frame is None:
-        return "&H0000FFFF&"
-    h, w, _ = frame.shape
-    bottom_crop = frame[int(h * 0.65):h, 0:w]
-    avg_b = float(np.mean(bottom_crop[:, :, 0]))
-    avg_g = float(np.mean(bottom_crop[:, :, 1]))
-    avg_r = float(np.mean(bottom_crop[:, :, 2]))
-    brightness = 0.299 * avg_r + 0.587 * avg_g + 0.114 * avg_b
-
-    if brightness > 150:
-        return "&H00FF5500&"
-    elif avg_g > avg_r and avg_g > avg_b:
-        return "&H00D900FF&"
-    elif avg_r > avg_g and avg_r > avg_b:
-        return "&H0000FF00&"
-    else:
-        return "&H0000FFFF&"
-
-def classify_reel_vibe(transcript_text):
-    text_lower = transcript_text.lower()
-    if any(w in text_lower for w in ["welcome", "hello", "today", "aaj", "dekho", "listen", "secret", "kaise", "stop", "wait"]):
-        return {
-            "name": "⚡ Intro / High-Energy Hook",
-            "tag": r"\t(0,70,\fscx130\fscy130)\t(70,140,\fscx100\fscy100)\shad6",
-            "font": "Impact", "words": "1 Word", "outline": 8, "shadow": 4
-        }
-    elif any(w in text_lower for w in ["vlog", "travel", "trip", "morning", "life", "friends", "khana", "market", "day"]):
-        return {
-            "name": "🎬 Travel & Daily Vlog",
-            "tag": r"\fad(140,80)",
-            "font": "Montserrat Black", "words": "2-3 Words", "outline": 6, "shadow": 2
-        }
-    elif any(w in text_lower for w in ["hardwork", "success", "mehnat", "gym", "money", "focus", "goal", "mindset", "power"]):
-        return {
-            "name": "🔥 Motivation & Fitness",
-            "tag": r"\blur6\t(0,60,\fscx120\fscy120)\t(60,120,\fscx100\fscy100)",
-            "font": "Arial Black", "words": "1 Word", "outline": 10, "shadow": 5
-        }
-    else:
-        return {
-            "name": "🎙️ Podcast & Storytelling",
-            "tag": r"\2c&H00FFFFFF&\k45",
-            "font": "Trebuchet MS", "words": "2-3 Words", "outline": 6, "shadow": 3
-        }
-
-def attach_emoji(word):
-    clean_w = re.sub(r'[^\w\s]', '', word.lower()).strip()
-    emojis = {
-        "money": " 💰", "paisa": " 💰", "paise": " 💰", "cash": " 💵", "rich": " 🤑",
-        "fire": " 🔥", "viral": " 🚀", "super": " ⚡", "energy": " ⚡", "power": " 💥",
-        "gym": " 🏋️", "workout": " 💪", "hardwork": " 💪", "mehnat": " 🦾",
-        "love": " ❤️", "pyar": " ❤️", "dil": " ❤️", "happy": " 😄", "khush": " 😊",
-        "travel": " ✈️", "trip": " 🧳", "car": " 🚗", "gaadi": " 🚘", "bike": " 🏍️",
-        "phone": " 📱", "mobile": " 📱", "video": " 🎬", "stop": " 🛑", "time": " ⏰"
+    # Color mapping to ASS BGR format
+    colors_map = {
+        "Yellow": "&H0000FFFF",
+        "White": "&H00FFFFFF",
+        "Cyan": "&H00FFFF00",
+        "Green": "&H0000FF00"
     }
-    return word + emojis.get(clean_w, "")
+    outline_map = {
+        "Black": "&H00000000",
+        "Dark Red": "&H0000008B",
+        "Dark Blue": "&H008B0000"
+    }
 
-def generate_safe_ass_header(font_name, size, outline, shadow, margin):
-    lines = [
-        "[Script Info]",
-        "ScriptType: v4.00+",
-        "PlayResX: 1080",
-        "PlayResY: 1920",
-        "",
-        "[V4+ Styles]",
-        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-        "Style: ReelStyle," + str(font_name) + "," + str(size) + ",&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,2,0,1," + str(outline) + "," + str(shadow) + ",2,20,20," + str(margin) + ",1",
-        "",
-        "[Events]",
-        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
-        ""
-    ]
-    return "\n".join(lines)
+    pri_c = colors_map.get(primary_color, "&H0000FFFF")
+    out_c = outline_map.get(outline_color, "&H00000000")
 
-# ==================== 4. SIDEBAR CONTROLS ====================
-st.sidebar.markdown("📧 **User:** `" + st.session_state['user_email'] + "`")
-if st.sidebar.button("🚪 Logout"):
-    st.session_state["logged_in"] = False
-    st.session_state["user_email"] = ""
-    st.rerun()
+    ass_header = f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+ScaledBorderAndShadow: yes
 
-st.sidebar.markdown("---")
-st.sidebar.markdown("## ⚙️ Studio Controls")
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,DejaVu Sans,{font_size},{pri_c},&H000000FF,{out_c},&H80000000,-1,0,0,0,100,100,0,0,1,3.5,0,{align_val},20,20,{margin_v},1
 
-with st.sidebar.expander("⚡ Processing Speed Mode", expanded=True):
-    perf_mode = st.radio("Speed Engine", ["🚀 Turbo Fast (5x Speed)", "🎯 Ultra Precision"])
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    events = []
+    for seg in segments:
+        start_time = format_timestamp_ass(seg['start'])
+        end_time = format_timestamp_ass(seg['end'])
+        text = seg['text'].strip().upper()
+        
+        # Word-by-word or short chunk formatting
+        words = text.split()
+        if len(words) > 4:
+            # Chunking long sentences for Reels
+            chunk_duration = (seg['end'] - seg['start']) / 2
+            mid_time = seg['start'] + chunk_duration
+            
+            w1 = " ".join(words[:len(words)//2])
+            w2 = " ".join(words[len(words)//2:])
+            
+            events.append(f"Dialogue: 0,{start_time},{format_timestamp_ass(mid_time)},Default,,0,0,0,,{{\\fad(80,80)}}{w1}")
+            events.append(f"Dialogue: 0,{format_timestamp_ass(mid_time)},{end_time},Default,,0,0,0,,{{\\fad(80,80)}}{w2}")
+        else:
+            events.append(f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{{\\fad(80,80)}}{text}")
 
-with st.sidebar.expander("🤖 AI Motion & Emojis", expanded=True):
-    auto_vibe = st.checkbox("AI Auto-Match Reel Type (Vlog/Intro/Podcast)", value=True)
-    enable_emojis = st.checkbox("😍 Auto-Add Smart Emojis", value=True)
+    return ass_header + "\n".join(events)
 
-with st.sidebar.expander("🎨 Subtitle Styling & Presets", expanded=False):
-    preset_style = st.selectbox(
-        "Animation Preset",
-        ["🔥 Hormozi Pop-Bounce", "🎤 CapCut Karaoke Highlight", "⚡ Neon Cyberpunk Glow", "🧊 3D Deep Shadow Drop", "✨ Smooth Fade-In Up", "🎯 Clean Minimal"]
-    )
-    font_family = st.selectbox("Font Family", ["Arial Black", "Impact", "Montserrat Black", "Trebuchet MS", "Verdana"])
-    words_layout = st.radio("Layout Flow", ["1 Word (Fast Reels)", "2-3 Words (Natural)", "Full Sentence"])
-    font_size = st.slider("Font Size", 40, 130, 80, step=5)
-    position = st.selectbox("Text Position", ["Center-Bottom", "Middle Center", "Lower Bottom", "Top Header"])
+# ----------------- MAIN UI -----------------
+st.title("🎬 CaptionVFX AI Studio Pro")
+st.caption("AI-Powered Auto Subtitles & Viral Reel Enhancer")
 
-with st.sidebar.expander("🎯 Color Settings", expanded=False):
-    highlight_color_choice = st.selectbox(
-        "Highlight Color",
-        ["🤖 Auto-Detect (Video AI Contrast)", "Neon Yellow", "Neon Green", "Cyan Blue", "Hot Pink", "Electric Orange", "Bright Red"]
-    )
-
-with st.sidebar.expander("🌐 Language & Translation", expanded=False):
-    language_choice = st.selectbox(
-        "Audio Language",
-        ["Pure Hinglish / Roman Hindi", "Auto-Detect Language", "English", "Hindi (हिन्दी)", "Spanish (Español)", "French (Français)", "German (Deutsch)", "Russian (Русский)"]
-    )
-    translate_to_en = st.checkbox("🔄 Translate to English Words", value=False)
-    all_uppercase = st.checkbox("🔠 Convert All to UPPERCASE", value=True)
-
-with st.sidebar.expander("⏱️ Slow-Mo & 4K Clarity", expanded=False):
-    enable_slowmo = st.checkbox("Enable Slow Motion", value=False)
-    speed_rate = "0.5x"
-    if enable_slowmo:
-        speed_rate = st.selectbox("Speed Factor", ["0.75x (Cinematic Slow)", "0.5x (Smooth Half Speed)", "0.25x (Super Slow-Mo)"])
-    
-    st.markdown("---")
-    enable_enhancer = st.checkbox("Enable 4K Clarity Boost", value=False)
-    sharpness_level = "High Sharpness"
-    if enable_enhancer:
-        sharpness_level = st.select_slider("Sharpness Level", options=["Subtle Clear", "High Sharpness", "Ultra 4K Feel"], value="High Sharpness")
-
-# ==================== 5. MAIN WORKSPACE ====================
-st.markdown("""
-<div class="main-title">
-    <h2>🎬 CaptionVFX AI Studio Pro</h2>
-    <p>5x Speed Engine • Cloudinary Unlimited Storage • Hinglish • VFX Emojis</p>
-</div>
-""", unsafe_allow_html=True)
-
-uploaded_file = st.file_uploader("📁 Upload Reel / Short Video (MP4/MOV)", type=["mp4", "mov"])
+uploaded_file = st.file_uploader("📤 Upload Video (MP4/MOV)", type=["mp4", "mov"])
 
 if uploaded_file:
-    col_v1, col_v2 = st.columns(2)
-    with col_v1:
-        st.markdown("##### 📹 Original Video Preview")
-        st.video(uploaded_file)
+    with open("temp_input.mp4", "wb") as f:
+        f.write(uploaded_file.getbuffer())
 
-    with col_v2:
-        st.markdown("##### ⚡ Render Workspace")
-        render_clicked = st.button("🚀 Render Subtitled Video", use_container_width=True)
+    st.video("temp_input.mp4")
 
-    if render_clicked:
-        with st.spinner("⚡ AI processing subtitles & rendering video..."):
-            with open("temp_input.mp4", "wb") as f:
-                f.write(uploaded_file.read())
+    st.subheader("⚙️ Customization Settings")
+    col1, col2 = st.columns(2)
+    with col1:
+        font_size = st.slider("Font Size", 18, 48, 32)
+        primary_color = st.selectbox("Primary Color", ["Yellow", "White", "Cyan", "Green"])
+        position = st.selectbox("Subtitle Position", ["Bottom", "Middle", "Top"])
+    with col2:
+        outline_color = st.selectbox("Outline Color", ["Black", "Dark Red", "Dark Blue"])
+        whisper_model = st.selectbox("Whisper AI Model", ["base", "tiny", "small"])
+        enable_enhancer = st.checkbox("AI Clarity & Sharpness Boost", value=True)
 
-            subprocess.run(
-                "ffmpeg -y -i temp_input.mp4 -vn -acodec pcm_s16le -ar 16000 -ac 1 temp_audio.wav",
-                shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-            )
+    if st.button("🚀 Render Subtitled Video", use_container_width=True):
+        progress_bar = st.progress(0)
+        status_text = st.empty()
 
-            active_whisper = tiny_model if "Turbo Fast" in perf_mode else base_model
+        # 1. Extract Audio
+        status_text.text("🎙️ Extracting Audio...")
+        progress_bar.progress(20)
+        cmd_extract = "ffmpeg -y -i temp_input.mp4 -vn -acodec pcm_s16le -ar 16000 -ac 1 temp_audio.wav"
+        subprocess.run(cmd_extract, shell=True, capture_output=True)
 
-            color_map = {
-                "Neon Yellow": "&H0000FFFF&", "Neon Green": "&H0000FF00&",
-                "Cyan Blue": "&H00FFFF00&", "Hot Pink": "&H00D900FF&",
-                "Electric Orange": "&H000088FF&", "Bright Red": "&H000000FF&"
-            }
-            if "Auto-Detect" in highlight_color_choice:
-                active_color = detect_best_contrast_color("temp_input.mp4")
-            else:
-                active_color = color_map.get(highlight_color_choice, "&H0000FFFF&")
+        # 2. Whisper Speech Recognition
+        status_text.text("🤖 Generating AI Subtitles (Whisper)...")
+        progress_bar.progress(45)
+        model = whisper.load_model(whisper_model)
+        transcription = model.transcribe("temp_audio.wav", fp16=False)
 
-            pos_map = {"Center-Bottom": 450, "Middle Center": 900, "Lower Bottom": 220, "Top Header": 1600}
-            margin_v = pos_map.get(position, 450)
+        # 3. Create ASS Subtitle file
+        status_text.text("🎨 Styling Subtitle Animations...")
+        progress_bar.progress(65)
+        ass_content = generate_ass_subtitles(
+            transcription["segments"],
+            "DejaVu Sans",
+            font_size,
+            primary_color,
+            outline_color,
+            position
+        )
+        with open("subtitles.ass", "w", encoding="utf-8") as f:
+            f.write(ass_content)
 
-            lang_map = {
-                "English": "en", "Hindi (हिन्दी)": "hi", "Spanish (Español)": "es",
-                "French (Français)": "fr", "German (Deutsch)": "de", "Russian (Русский)": "ru"
-            }
+        # 4. FFmpeg Video Merge
+        status_text.text("⚡ Final Video Rendering...")
+        progress_bar.progress(85)
+        
+        vf_filters = ["ass=subtitles.ass"]
+        if enable_enhancer:
+            vf_filters.append("unsharp=5:5:0.8:5:5:0.0,eq=contrast=1.05:saturation=1.12")
+        
+        vf_str = ",".join(vf_filters)
+        cmd_render = f'ffmpeg -y -i temp_input.mp4 -vf "{vf_str}" -c:a copy -c:v libx264 -preset ultrafast -pix_fmt yuv420p output.mp4'
+        subprocess.run(cmd_render, shell=True, capture_output=True)
 
-            convert_to_roman = False
-            task_type = "translate" if translate_to_en else "transcribe"
+        progress_bar.progress(100)
+        status_text.empty()
 
-            if language_choice == "Pure Hinglish / Roman Hindi":
-                segs_gen, _ = active_whisper.transcribe("temp_audio.wav", word_timestamps=True, language="hi", initial_prompt="यह हिंदी में है।")
-                convert_to_roman = True
-            elif language_choice in lang_map:
-                segs_gen, _ = active_whisper.transcribe("temp_audio.wav", word_timestamps=True, language=lang_map[language_choice], task=task_type)
-            else:
-                segs_gen, _ = active_whisper.transcribe("temp_audio.wav", word_timestamps=True, task=task_type)
+        # 5. Result Display & Download
+        if os.path.exists("output.mp4") and os.path.getsize("output.mp4") > 1000:
+            st.success("✅ Reel Successfully Rendered!")
+            with open("output.mp4", "rb") as vid_file:
+                video_bytes = vid_file.read()
+                st.video(video_bytes)
+                st.download_button(
+                    label="📥 Download Subtitled Reel (MP4)",
+                    data=video_bytes,
+                    file_name="edited_viral_reel.mp4",
+                    mime="video/mp4",
+                    use_container_width=True
+                )
+        else:
+            st.error("Rendering issue detected. Please verify packages.txt has ffmpeg installed.")
 
-            segments = list(segs_gen)
-            full_text = " ".join([s.text for s in segments])
-
-            if auto_vibe:
-                vibe = classify_reel_vibe(full_text)
-                st.success("🎯 AI Detected Genre: **" + vibe["name"] + "**")
-                effect_tag = "{\\c" + active_color + "\\" + vibe["tag"] + "}"
-                chosen_font = vibe["font"]
-                chosen_layout = vibe["words"]
-                outline_size = vibe["outline"]
-                shadow_size = vibe["shadow"]
-            else:
-                chosen_font = font_family
-                chosen_layout = words_layout
-                outline_size = 8
-                shadow_size = 4
-                if "Hormozi Pop-Bounce" in preset_style:
-                    effect_tag = "{\\c" + active_color + r"\t(0,70,\fscx125\fscy125)\t(70,140,\fscx100\fscy100)\shad5}"
-                elif "Karaoke" in preset_style:
-                    effect_tag = "{\\c" + active_color + r"\2c&H00FFFFFF&\k50}"
-                    outline_size = 6
-                elif "Neon Cyberpunk" in preset_style:
-                    effect_tag = "{\\c" + active_color + r"\blur7\3c" + active_color + r"\shad0}"
-                    outline_size = 4
-                elif "3D Deep Shadow" in preset_style:
-                    effect_tag = "{\\c" + active_color + r"\shad10\4c&H00000000&}"
-                    outline_size = 10
-                elif "Fade-In Up" in preset_style:
-                    effect_tag = "{\\c" + active_color + r"\fad(120,60)}"
-                else:
-                    effect_tag = "{\\c" + active_color + "}"
-                    outline_size = 5
-                    shadow_size = 2
-
-            speed_factor = 1.0
-            if enable_slowmo:
-                if "0.75x" in speed_rate: speed_factor = 1.0 / 0.75
-                e
+        cleanup_files(["temp_input.mp4", "temp_audio.wav", "subtitles.ass", "output.mp4"])
+        gc.collect()
+    
