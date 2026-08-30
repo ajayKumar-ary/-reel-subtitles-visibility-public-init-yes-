@@ -108,7 +108,7 @@ def devanagari_to_hinglish(text: str) -> str:
 
     return " ".join(output_words)
 
-# ----------------- SAFE SYSTEM FONT LOADER -----------------
+# ----------------- SYSTEM FONT LOADER -----------------
 def get_scalable_font(size):
     font_paths = [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
@@ -122,13 +122,10 @@ def get_scalable_font(size):
                 return ImageFont.truetype(p, size)
             except Exception:
                 pass
-    try:
-        return ImageFont.truetype("DejaVuSans-Bold.ttf", size)
-    except Exception:
-        return ImageFont.load_default()
+    return ImageFont.load_default()
 
-# ----------------- BIG VIRAL OVERLAYS -----------------
-def create_subtitle_overlays(segments, position, color_name, font_size_val, out_dir):
+# ----------------- DYNAMIC RESOLUTION OVERLAYS -----------------
+def create_subtitle_overlays(segments, position, color_name, font_scale, vw, vh, out_dir):
     color_dict = {
         "Yellow Highlight": (255, 235, 0),
         "Neon Cyan": (0, 245, 255),
@@ -139,11 +136,13 @@ def create_subtitle_overlays(segments, position, color_name, font_size_val, out_
     fill_col = color_dict.get(color_name, (255, 235, 0))
     os.makedirs(out_dir, exist_ok=True)
 
-    overlay_files = []
-    font = get_scalable_font(font_size_val)
+    # Dynamic font sizing according to video width
+    calculated_font_size = int(vw * (font_scale / 1000.0))
+    font = get_scalable_font(calculated_font_size)
 
+    overlay_files = []
     for idx, seg in enumerate(segments):
-        img = Image.new("RGBA", (1080, 1920), (0, 0, 0, 0))
+        img = Image.new("RGBA", (vw, vh), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
         text = seg['text'].strip().upper()
 
@@ -151,21 +150,23 @@ def create_subtitle_overlays(segments, position, color_name, font_size_val, out_
         text_w = bbox[2] - bbox[0]
         text_h = bbox[3] - bbox[1]
 
-        x = (1080 - text_w) // 2
+        x = (vw - text_w) // 2
         
         if position == "Top":
-            y = 300
+            y = int(vh * 0.15)
         elif position == "Middle":
-            y = (1920 - text_h) // 2
+            y = (vh - text_h) // 2
         else:
-            y = 1380  # Viral reel lower-third position
+            y = int(vh * 0.76)  # Perfect readable lower position
 
-        pad_x = 40
-        pad_y = 22
+        # Dynamic padding
+        pad_x = int(vw * 0.04)
+        pad_y = int(vh * 0.015)
+        radius = int(vw * 0.025)
         banner_box = [x - pad_x, y - pad_y, x + text_w + pad_x, y + text_h + pad_y]
-        draw.rounded_rectangle(banner_box, radius=24, fill=(0, 0, 0, 210))
+        draw.rounded_rectangle(banner_box, radius=radius, fill=(0, 0, 0, 215))
         
-        stroke_val = max(4, font_size_val // 18)
+        stroke_val = max(3, calculated_font_size // 14)
         draw.text((x, y), text, font=font, fill=fill_col, stroke_width=stroke_val, stroke_fill=(0, 0, 0, 255))
         
         filename = os.path.join(out_dir, f"sub_{idx}.png")
@@ -176,7 +177,7 @@ def create_subtitle_overlays(segments, position, color_name, font_size_val, out_
 
 # ----------------- UI WORKSPACE -----------------
 st.title("🎬 CaptionVFX AI Studio Pro")
-st.caption("Large Viral Subtitles • Perfect Timing • 4K Visual Boost")
+st.caption("Responsive Subtitles • Exact Dynamic Scale • Perfect Timing")
 
 uploaded_file = st.file_uploader("📤 Upload Video (MP4/MOV)", type=["mp4", "mov"])
 
@@ -192,14 +193,22 @@ if uploaded_file:
     with open(input_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
 
-    # Duration Check
+    # Get Duration & Video Dimensions
     video_duration = 10.0
+    vw, vh = 1080, 1920
     try:
         dur_cmd = f'"{FFMPEG_EXE}" -i "{input_path}" 2>&1'
         dur_proc = subprocess.run(dur_cmd, shell=True, capture_output=True, text=True)
-        match = re.search(r'Duration:\s*(\d+):(\d+):(\d+\.\d+)', dur_proc.stdout + dur_proc.stderr)
-        if match:
-            video_duration = int(match.group(1))*3600 + int(match.group(2))*60 + float(match.group(3))
+        out_str = dur_proc.stdout + dur_proc.stderr
+
+        match_dur = re.search(r'Duration:\s*(\d+):(\d+):(\d+\.\d+)', out_str)
+        if match_dur:
+            video_duration = int(match_dur.group(1))*3600 + int(match_dur.group(2))*60 + float(match_dur.group(3))
+
+        match_res = re.search(r'Stream.*Video:.*,\s*(\d+)x(\d+)', out_str)
+        if match_res:
+            vw = int(match_res.group(1))
+            vh = int(match_res.group(2))
     except:
         pass
 
@@ -209,8 +218,8 @@ if uploaded_file:
         st.video(input_path)
         st.markdown(f"""
         <div class="metric-card">
-            ⚡ <b>Subtitle Engine:</b> Big Viral Typography<br>
-            ⏱️ <b>Duration:</b> {video_duration:.1f}s | 🎯 1080x1920 Ready
+            ⚡ <b>Canvas:</b> {vw}x{vh} (Exact Aspect Ratio)<br>
+            ⏱️ <b>Duration:</b> {video_duration:.1f}s | Pro Viral Layout
         </div>
         """, unsafe_allow_html=True)
 
@@ -231,21 +240,21 @@ if uploaded_file:
         
         with c2:
             position = st.selectbox("📍 Subtitle Position", ["Bottom", "Middle", "Top"])
-            font_size = st.slider("🔤 Font Size", 60, 160, 100)
+            font_scale = st.slider("🔤 Font Size Scale", 60, 140, 95)
 
-        custom_override = st.text_input("✍️ Manual Subtitle Override (Optional)", placeholder="Khaali chhoden agar auto audio detect chahiye")
+        custom_override = st.text_input("✍️ Manual Subtitle Override (Optional)", placeholder="Khaali chhoden agar auto-detect audio chahiye")
 
     if st.button("🚀 Render Subtitled Video", use_container_width=True):
         progress_bar = st.progress(0)
         status_text = st.empty()
 
-        # 1. Clean Audio Extraction
+        # 1. Audio Extraction
         status_text.text("🎙️ Extracting Audio Track...")
         progress_bar.progress(25)
         cmd_extract = f'"{FFMPEG_EXE}" -y -i "{input_path}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "{audio_path}"'
         subprocess.run(cmd_extract, shell=True, capture_output=True)
 
-        # 2. Transcribe Audio
+        # 2. Voice AI Transcription
         status_text.text("🤖 Transcribing Spoken Audio...")
         progress_bar.progress(50)
         
@@ -288,18 +297,18 @@ if uploaded_file:
                 {'start': video_duration/2, 'end': video_duration, 'text': 'VIRAL VIDEO REEL'}
             ]
 
-        # 3. Create Big HD Overlays
-        status_text.text("🎨 Generating Large Viral Captions...")
+        # 3. Dynamic Resolution Overlays
+        status_text.text("🎨 Generating Responsive Graphic Captions...")
         progress_bar.progress(70)
-        overlays = create_subtitle_overlays(segments, position, primary_color, font_size, overlays_dir)
+        overlays = create_subtitle_overlays(segments, position, primary_color, font_scale, vw, vh, overlays_dir)
 
-        # 4. Multi-Overlay Filter Burn
+        # 4. Direct FFmpeg Overlay (Zero padding distortion)
         status_text.text("⚡ Burning Captions onto Video...")
         progress_bar.progress(85)
         
         input_args = [f'-i "{input_path}"']
-        filter_chains = ["[0:v]scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2[v0]"]
-        last_v = "v0"
+        filter_chains = []
+        last_v = "0:v"
 
         for i, (ov_file, st_t, en_t) in enumerate(overlays, 1):
             input_args.append(f'-i "{ov_file}"')
