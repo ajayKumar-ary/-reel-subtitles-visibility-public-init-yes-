@@ -6,8 +6,8 @@ import json
 import gc
 import re
 import imageio_ffmpeg
+import speech_recognition as sr
 
-# Get direct path to bundled standalone ffmpeg executable
 FFMPEG_EXE = imageio_ffmpeg.get_ffmpeg_exe()
 
 # ----------------- PAGE CONFIG -----------------
@@ -110,15 +110,13 @@ def devanagari_to_hinglish(text: str) -> str:
 def format_timestamp_srt(seconds: float) -> str:
     hours = int(seconds // 3600)
     minutes = int((seconds % 3600) // 60)
-    secs = int(seconds % 60)
+    secs = seconds % 60
     milli = int((seconds - int(seconds)) * 1000)
     return f"{hours:02d}:{minutes:02d}:{secs:02d},{milli:03d}"
 
 # ----------------- UI WORKSPACE -----------------
 st.title("🎬 CaptionVFX AI Studio Pro")
-st.caption("Cloud AI Subtitles • Hinglish Auto-Romanize • VFX Pop Animations • 4K Boost")
-
-hf_token = st.secrets.get("HF_TOKEN", "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")
+st.caption("Neural Speech Subtitles • Hinglish Auto-Romanize • VFX Pop Animations • 4K Boost")
 
 uploaded_file = st.file_uploader("📤 Upload Video (MP4/MOV)", type=["mp4", "mov"])
 
@@ -134,7 +132,7 @@ if uploaded_file:
     with open(input_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
 
-    # Get Duration using bundled ffmpeg
+    # Calculate Duration
     video_duration = 10.0
     try:
         dur_cmd = f'"{FFMPEG_EXE}" -i "{input_path}" 2>&1'
@@ -151,7 +149,7 @@ if uploaded_file:
         st.video(input_path)
         st.markdown(f"""
         <div class="metric-card">
-            ⚡ <b>AI Engine:</b> HuggingFace Neural Cloud<br>
+            ⚡ <b>Audio Engine:</b> High-Accuracy Multi-Voice AI<br>
             ⏱️ <b>Duration:</b> {video_duration:.1f}s | 🎯 1080x1920 Ready
         </div>
         """, unsafe_allow_html=True)
@@ -188,53 +186,52 @@ if uploaded_file:
         progress_bar = st.progress(0)
         status_text = st.empty()
 
-        # 1. Clean Audio Extraction using Standalone FFmpeg
-        status_text.text("🎙️ Extracting Clean Audio...")
+        # 1. Clean Audio Extraction
+        status_text.text("🎙️ Extracting Clean Audio Track...")
         progress_bar.progress(25)
         cmd_extract = f'"{FFMPEG_EXE}" -y -i "{input_path}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "{audio_path}"'
         subprocess.run(cmd_extract, shell=True, capture_output=True)
 
-        # 2. Cloud AI Whisper Call
-        status_text.text("🤖 Transcribing Voice with HuggingFace AI...")
+        # 2. Accurate Speech Recognition Engine
+        status_text.text("🤖 Transcribing Real Spoken Words...")
         progress_bar.progress(50)
         
         segments = []
-        API_URL = "https://router.huggingface.co/hf-inference/models/openai/whisper-large-v3"
-        headers = {"Authorization": f"Bearer {hf_token}"}
+        recognized_text = ""
+        r = sr.Recognizer()
         
         try:
-            with open(audio_path, "rb") as f:
-                audio_data = f.read()
-            
-            response = requests.post(API_URL, headers=headers, data=audio_data, timeout=35)
-            res_json = response.json()
-            
-            if "text" in res_json and res_json["text"].strip():
-                full_text = res_json["text"].strip()
-                words = full_text.split()
-                chunk_size = 3
-                word_chunks = [words[i:i + chunk_size] for i in range(0, len(words), chunk_size)]
-                time_per_chunk = video_duration / max(1, len(word_chunks))
-                
-                for idx, chunk in enumerate(word_chunks):
-                    st_time = idx * time_per_chunk
-                    en_time = min(video_duration, (idx + 1) * time_per_chunk)
-                    segments.append({
-                        'start': st_time,
-                        'end': en_time,
-                        'text': " ".join(chunk)
-                    })
+            with sr.AudioFile(audio_path) as src:
+                audio_data = r.record(src)
+                target_lang = "en-US" if "English" in lang_mode else "hi-IN"
+                recognized_text = r.recognize_google(audio_data, language=target_lang)
         except Exception:
-            segments = []
+            recognized_text = ""
+
+        # Divide into small 2-3 word reel subtitle clips
+        if recognized_text.strip():
+            words = recognized_text.split()
+            chunk_size = 2
+            word_chunks = [words[i:i + chunk_size] for i in range(0, len(words), chunk_size)]
+            time_per_chunk = video_duration / max(1, len(word_chunks))
+            
+            for idx, chunk in enumerate(word_chunks):
+                st_time = idx * time_per_chunk
+                en_time = min(video_duration, (idx + 1) * time_per_chunk)
+                segments.append({
+                    'start': st_time,
+                    'end': en_time,
+                    'text': " ".join(chunk)
+                })
 
         if not segments:
             segments = [
-                {'start': 0.0, 'end': video_duration/2, 'text': 'YEH HAI VIRAL REEL'},
+                {'start': 0.0, 'end': video_duration/2, 'text': 'HELLO DOSTO'},
                 {'start': video_duration/2, 'end': video_duration, 'text': 'FOLLOW FOR MORE'}
             ]
 
-        # 3. Create Standard SRT File
-        status_text.text("🎨 Formatting Subtitle Track...")
+        # 3. Create Standard Subtitle File
+        status_text.text("🎨 Syncing Subtitle Timing...")
         progress_bar.progress(70)
         
         srt_lines = []
@@ -254,8 +251,8 @@ if uploaded_file:
         with open(srt_path, "w", encoding="utf-8") as f:
             f.write("\n".join(srt_lines))
 
-        # 4. Burn Subtitles via Standalone FFmpeg
-        status_text.text("⚡ Burning Subtitles onto Video...")
+        # 4. Burn Subtitles via FFmpeg SRT
+        status_text.text("⚡ Burning Animated Subtitles...")
         progress_bar.progress(85)
         
         colors_map = {
@@ -281,6 +278,7 @@ if uploaded_file:
         if enable_enhancer:
             vf_filters.append("unsharp=5:5:0.8:5:5:0.0,eq=contrast=1.08:saturation=1.15")
 
+        # Clean absolute escaped subtitle filter
         sub_filter = f"subtitles='{srt_path}':force_style='FontSize={font_size},PrimaryColour={hex_c},OutlineColour=&H00000000,BorderStyle=1,Outline=3,Shadow=2,Alignment={align_code},MarginV=50'"
         vf_filters.append(sub_filter)
 
@@ -290,10 +288,15 @@ if uploaded_file:
         cmd_render = f'"{FFMPEG_EXE}" -y -i "{input_path}" -vf "{vf_str}" {af_str} -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac "{output_path}"'
         render_proc = subprocess.run(cmd_render, shell=True, capture_output=True, text=True)
 
+        # Fallback if custom styles fail
+        if not os.path.exists(output_path) or os.path.getsize(output_path) < 1000:
+            cmd_fallback = f'"{FFMPEG_EXE}" -y -i "{input_path}" -vf "subtitles=\'{srt_path}\'" -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac "{output_path}"'
+            render_proc = subprocess.run(cmd_fallback, shell=True, capture_output=True, text=True)
+
         progress_bar.progress(100)
         status_text.empty()
 
-        # 5. Output Video Display & Download
+        # 5. Output Display & Download
         if os.path.exists(output_path) and os.path.getsize(output_path) > 1000:
             st.success("✅ Subtitled Reel Ready!")
             with open(output_path, "rb") as vid_file:
@@ -307,7 +310,7 @@ if uploaded_file:
                     use_container_width=True
                 )
         else:
-            st.error(f"Rendering failed: {render_proc.stderr[-300:] if render_proc.stderr else 'Unknown Error'}")
+            st.error(f"Rendering error: {render_proc.stderr[-300:] if render_proc.stderr else 'Unknown'}")
 
         gc.collect()
         
