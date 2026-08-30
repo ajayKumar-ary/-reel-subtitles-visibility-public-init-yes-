@@ -99,7 +99,7 @@ def devanagari_to_hinglish(text: str) -> str:
         'क': 'k', 'ख': 'kh', 'ग': 'g', 'घ': 'gh', 'ङ': 'ng',
         'च': 'ch', 'छ': 'chh', 'ज': 'j', 'झ': 'jh', 'ञ': 'ny',
         'ट': 't', 'ठ': 'th', 'ड': 'd', 'ढ': 'dh', 'ण': 'n',
-        'त': 't', 'थ': 'th', 'द': 'd', 'dh': 'dh', 'न': 'n',
+        'त': 't', 'थ': 'th', 'द': 'd', 'ध': 'dh', 'न': 'n',
         'प': 'p', 'ph': 'ph', 'ब': 'b', 'भ': 'bh', 'म': 'm',
         'य': 'y', 'र': 'r', 'ल': 'l', 'व': 'v', 'श': 'sh',
         'ष': 'sh', 'स': 's', 'ह': 'h', 'ड़': 'd', 'ढ़': 'dh',
@@ -410,7 +410,6 @@ if uploaded_file:
             words = recognized_text.split()
             word_chunks = [words[i:i + chunk_size] for i in range(0, len(words), chunk_size)]
             
-            # Divide exact active speaking duration
             active_duration = max(0.8, speech_end_time - speech_start_time - 0.2)
             time_per_chunk = active_duration / max(1, len(word_chunks))
             
@@ -508,4 +507,6 @@ if uploaded_file:
                     data=video_bytes,
                     file_name="viral_caption_reel.mp4",
                     mime="video/mp4",
-                    use
+                    use_container_width=True
+                )
+            else:
