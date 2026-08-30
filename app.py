@@ -30,8 +30,8 @@ SMTP_SENDER_EMAIL = "tiwariajaykumar690@gmail.com"
 SMTP_SENDER_PASSWORD = "zcnqpshuswnhztto"
 
 CLOUDINARY_CLOUD_NAME = "mqzihwci"
-CLOUDINARY_API_KEY = "YOUR_API_KEY_HERE"       # Yahan apni Cloudinary API Key daalein
-CLOUDINARY_API_SECRET = "YOUR_API_SECRET_HERE" # Yahan apna Cloudinary API Secret daalein
+CLOUDINARY_API_KEY = "YOUR_API_KEY_HERE"
+CLOUDINARY_API_SECRET = "YOUR_API_SECRET_HERE"
 
 cloudinary.config(
     cloud_name=CLOUDINARY_CLOUD_NAME,
@@ -318,6 +318,23 @@ def attach_emoji(word):
     }
     return word + emojis.get(clean_w, "")
 
+def generate_safe_ass_header(font_name, size, outline, shadow, margin):
+    lines = [
+        "[Script Info]",
+        "ScriptType: v4.00+",
+        "PlayResX: 1080",
+        "PlayResY: 1920",
+        "",
+        "[V4+ Styles]",
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+        "Style: ReelStyle," + str(font_name) + "," + str(size) + ",&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,2,0,1," + str(outline) + "," + str(shadow) + ",2,20,20," + str(margin) + ",1",
+        "",
+        "[Events]",
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+        ""
+    ]
+    return "\n".join(lines)
+
 # ==================== 4. SIDEBAR CONTROLS ====================
 st.sidebar.markdown("📧 **User:** `" + st.session_state['user_email'] + "`")
 if st.sidebar.button("🚪 Logout"):
@@ -469,8 +486,4 @@ if uploaded_file:
             speed_factor = 1.0
             if enable_slowmo:
                 if "0.75x" in speed_rate: speed_factor = 1.0 / 0.75
-                elif "0.5x" in speed_rate: speed_factor = 2.0
-                elif "0.25x" in speed_rate: speed_factor = 4.0
-
-            # Safe Subtitle Header String Construction
-            ass_header = "[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: ReelStyle," + str(chosen_font) + "," + str(font_size) + ",&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,2,0,1," + str(outline_size) + "," + str(shadow_size) + ",2,20,20," + str(margin_v) + ",1\n\n[Events]\nFormat: Layer, Start, End
+                e
