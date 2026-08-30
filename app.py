@@ -3,11 +3,14 @@ import subprocess
 import os
 import re
 import cv2
+import gc
 import numpy as np
 import sqlite3
 import hashlib
 import random
 import smtplib
+import cloudinary
+import cloudinary.uploader
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from faster_whisper import WhisperModel
@@ -22,8 +25,22 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# ----------------- CREDENTIALS -----------------
 SMTP_SENDER_EMAIL = "tiwariajaykumar690@gmail.com"
 SMTP_SENDER_PASSWORD = "zcnqpshuswnhztto"
+
+# Cloudinary Dashboard se mili 3 details yahan dalein:
+CLOUDINARY_CLOUD_NAME = "YOUR_CLOUD_NAME_HERE"
+CLOUDINARY_API_KEY = "YOUR_API_KEY_HERE"
+CLOUDINARY_API_SECRET = "YOUR_API_SECRET_HERE"
+
+cloudinary.config(
+    cloud_name=CLOUDINARY_CLOUD_NAME,
+    api_key=CLOUDINARY_API_KEY,
+    api_secret=CLOUDINARY_API_SECRET,
+    secure=True
+)
+# -----------------------------------------------
 
 st.markdown("""
 <style>
@@ -136,6 +153,21 @@ def send_otp(target, code):
     except Exception:
         return False
 
+def upload_video_to_cloud(video_path):
+    try:
+        res = cloudinary.uploader.upload(video_path, resource_type="video", folder="captionvfx_reels")
+        return res.get("secure_url")
+    except Exception:
+        return None
+
+def cleanup_files(file_list):
+    for path in file_list:
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+            except Exception:
+                pass
+
 # Session State
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
@@ -202,8 +234,8 @@ if not st.session_state["logged_in"]:
 # ==================== 3. AI SUBTITLE & VFX ENGINE ====================
 @st.cache_resource
 def load_whisper():
-    tiny = WhisperModel("tiny", device="cpu", compute_type="int8", cpu_threads=4)
-    base = WhisperModel("base", device="cpu", compute_type="int8", cpu_threads=4)
+    tiny = WhisperModel("tiny", device="cpu", compute_type="int8", cpu_threads=2)
+    base = WhisperModel("base", device="cpu", compute_type="int8", cpu_threads=2)
     return tiny, base
 
 tiny_model, base_model = load_whisper()
@@ -297,16 +329,13 @@ if st.sidebar.button("🚪 Logout"):
 st.sidebar.markdown("---")
 st.sidebar.markdown("## ⚙️ Studio Controls")
 
-# Speed Engine
 with st.sidebar.expander("⚡ Processing Speed Mode", expanded=True):
     perf_mode = st.radio("Speed Engine", ["🚀 Turbo Fast (5x Speed)", "🎯 Ultra Precision"])
 
-# AI Genre Motion & Emojis
 with st.sidebar.expander("🤖 AI Motion & Emojis", expanded=True):
     auto_vibe = st.checkbox("AI Auto-Match Reel Type (Vlog/Intro/Podcast)", value=True)
     enable_emojis = st.checkbox("😍 Auto-Add Smart Emojis", value=True)
 
-# Subtitle Styling
 with st.sidebar.expander("🎨 Subtitle Styling & Presets", expanded=False):
     preset_style = st.selectbox(
         "Animation Preset",
@@ -317,14 +346,12 @@ with st.sidebar.expander("🎨 Subtitle Styling & Presets", expanded=False):
     font_size = st.slider("Font Size", 40, 130, 80, step=5)
     position = st.selectbox("Text Position", ["Center-Bottom", "Middle Center", "Lower Bottom", "Top Header"])
 
-# Colors
 with st.sidebar.expander("🎯 Color Settings", expanded=False):
     highlight_color_choice = st.selectbox(
         "Highlight Color",
         ["🤖 Auto-Detect (Video AI Contrast)", "Neon Yellow", "Neon Green", "Cyan Blue", "Hot Pink", "Electric Orange", "Bright Red"]
     )
 
-# Language
 with st.sidebar.expander("🌐 Language & Translation", expanded=False):
     language_choice = st.selectbox(
         "Audio Language",
@@ -333,7 +360,6 @@ with st.sidebar.expander("🌐 Language & Translation", expanded=False):
     translate_to_en = st.checkbox("🔄 Translate to English Words", value=False)
     all_uppercase = st.checkbox("🔠 Convert All to UPPERCASE", value=True)
 
-# Slow-Mo & Clarity
 with st.sidebar.expander("⏱️ Slow-Mo & 4K Clarity", expanded=False):
     enable_slowmo = st.checkbox("Enable Slow Motion", value=False)
     speed_rate = "0.5x"
@@ -350,7 +376,7 @@ with st.sidebar.expander("⏱️ Slow-Mo & 4K Clarity", expanded=False):
 st.markdown("""
 <div class="main-title">
     <h2>🎬 CaptionVFX AI Studio Pro</h2>
-    <p>5x Speed Engine • AI Auto-Genre Motion • CapCut VFX • Hinglish • Emojis</p>
+    <p>5x Speed Engine • Cloudinary Unlimited Storage • Hinglish • VFX Emojis</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -364,7 +390,6 @@ if uploaded_file:
 
     with col_v2:
         st.markdown("##### ⚡ Render Workspace")
-        st.info("💡 Side panel se AI Auto-Motion, Color, Speed aur VFX customize karein.")
         render_clicked = st.button("🚀 Render Subtitled Video", use_container_width=True)
 
     if render_clicked:
@@ -448,7 +473,6 @@ if uploaded_file:
                 elif "0.5x" in speed_rate: speed_factor = 2.0
                 elif "0.25x" in speed_rate: speed_factor = 4.0
 
-            # Safe Subtitle Header Formatting
             ass_header = (
                 "[Script Info]\n"
                 "ScriptType: v4.00+\n"
@@ -458,17 +482,4 @@ if uploaded_file:
                 "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
                 f"Style: ReelStyle,{chosen_font},{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,2,0,1,{outline_size},{shadow_size},2,20,20,{margin_v},1\n\n"
                 "[Events]\n"
-                "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
-            )
-
-            events = []
-            if "1 Word" in chosen_layout:
-                for s in segments:
-                    for w in s.words:
-                        st_time = format_ass_time(w.start * speed_factor)
-                        en_time = format_ass_time(w.end * speed_factor)
-                        raw_w = w.word.strip()
-                        if enable_emojis: raw_w = attach_emoji(raw_w)
-                        txt = clean_to_roman(raw_w) if convert_to_roman else raw_w
-                        if all_uppercase: txt = txt.upper()
-                  
+   
