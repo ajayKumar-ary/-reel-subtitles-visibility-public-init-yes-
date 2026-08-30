@@ -1,2 +1,4 @@
 ffmpeg
+fonts-indic
 fonts-dejavu-core
+
