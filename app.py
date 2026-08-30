@@ -1,9 +1,11 @@
 import streamlit as st
 import os
 import subprocess
-import speech_recognition as sr
+import requests
+import json
 import gc
 import re
+import time
 
 # ----------------- PAGE CONFIG -----------------
 st.set_page_config(
@@ -184,7 +186,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 # ----------------- UI WORKSPACE -----------------
 st.title("🎬 CaptionVFX AI Studio Pro")
-st.caption("Fast Subtitles • Hinglish Transliteration • VFX Pop Animations • 4K Visual Boost")
+st.caption("HuggingFace Cloud AI • Instant Subtitles • Hinglish Auto-Romanize • 4K Visual Boost")
+
+# Get HF Token from Streamlit Secrets
+hf_token = st.secrets.get("HF_TOKEN", "")
 
 uploaded_file = st.file_uploader("📤 Upload Video (MP4/MOV)", type=["mp4", "mov"])
 
@@ -192,7 +197,7 @@ if uploaded_file:
     with open("temp_input.mp4", "wb") as f:
         f.write(uploaded_file.getbuffer())
 
-    # Calculate video duration safely
+    # Get Duration
     dur_cmd = "ffmpeg -i temp_input.mp4 2>&1 | grep Duration"
     dur_proc = subprocess.run(dur_cmd, shell=True, capture_output=True, text=True)
     video_duration = 10.0
@@ -206,7 +211,7 @@ if uploaded_file:
         st.video("temp_input.mp4")
         st.markdown(f"""
         <div class="metric-card">
-            ⚡ <b>AI Engine:</b> High-Speed Cloud Voice AI<br>
+            ⚡ <b>AI Engine:</b> Hugging Face Whisper-Large Cloud<br>
             ⏱️ <b>Duration:</b> {video_duration:.1f}s | 🎯 1080x1920 Ready
         </div>
         """, unsafe_allow_html=True)
@@ -244,23 +249,28 @@ if uploaded_file:
         status_text = st.empty()
 
         # 1. Clean Audio Extraction
-        status_text.text("🎙️ Extracting Audio...")
+        status_text.text("🎙️ Extracting Clean Audio...")
         progress_bar.progress(25)
         cmd_extract = "ffmpeg -y -i temp_input.mp4 -vn -acodec pcm_s16le -ar 16000 -ac 1 temp_audio.wav"
         subprocess.run(cmd_extract, shell=True, capture_output=True)
 
-        # 2. High-Accuracy Speech Recognition
-        status_text.text("🤖 Transcribing Voice with AI...")
+        # 2. Hugging Face Inference API
+        status_text.text("🤖 Transcribing with HuggingFace Cloud Whisper...")
         progress_bar.progress(50)
         
         segments = []
-        r = sr.Recognizer()
+        API_URL = "https://api-inference.huggingface.co/models/openai/whisper-large-v3"
+        headers = {"Authorization": f"Bearer {hf_token}"} if hf_token else {}
+        
         try:
-            with sr.AudioFile("temp_audio.wav") as source:
-                audio_data = r.record(source)
-                speech_lang = "en-US" if "English" in lang_mode else "hi-IN"
-                full_text = r.recognize_google(audio_data, language=speech_lang)
-                
+            with open("temp_audio.wav", "rb") as f:
+                audio_data = f.read()
+            
+            response = requests.post(API_URL, headers=headers, data=audio_data, timeout=30)
+            res_json = response.json()
+            
+            if "text" in res_json and res_json["text"].strip():
+                full_text = res_json["text"].strip()
                 words = full_text.split()
                 chunk_size = 3
                 word_chunks = [words[i:i + chunk_size] for i in range(0, len(words), chunk_size)]
@@ -275,14 +285,16 @@ if uploaded_file:
                         'text': " ".join(chunk)
                     })
         except Exception:
-            # Fallback text if audio is silent
+            segments = []
+
+        if not segments:
             segments = [
                 {'start': 0.0, 'end': video_duration/2, 'text': 'YEH HAI VIRAL REEL'},
                 {'start': video_duration/2, 'end': video_duration, 'text': 'FOLLOW FOR MORE'}
             ]
 
         # 3. Generate Subtitles ASS
-        status_text.text("🎨 Styling Subtitles...")
+        status_text.text("🎨 Styling Subtitle Animations...")
         progress_bar.progress(70)
         ass_content = generate_ass_subtitles(
             segments,
@@ -295,7 +307,7 @@ if uploaded_file:
         with open("subtitles.ass", "w", encoding="utf-8") as f:
             f.write(ass_content)
 
-        # 4. FFmpeg Video Merge (Safe Subtitles Filter)
+        # 4. FFmpeg Video Merge
         status_text.text("⚡ Final Fast Merge...")
         progress_bar.progress(85)
         
@@ -312,25 +324,20 @@ if uploaded_file:
         if enable_enhancer:
             vf_filters.append("unsharp=5:5:0.8:5:5:0.0,eq=contrast=1.08:saturation=1.15")
 
-        vf_filters.append("subtitles=subtitles.ass")
+        vf_filters.append("ass=subtitles.ass")
         
         vf_str = ",".join(vf_filters)
         af_str = f'-af "{",".join(af_filters)}"' if af_filters else "-c:a copy"
 
         cmd_render = f'ffmpeg -y -i temp_input.mp4 -vf "{vf_str}" {af_str} -c:v libx264 -preset ultrafast -pix_fmt yuv420p output.mp4'
-        res = subprocess.run(cmd_render, shell=True, capture_output=True, text=True)
-
-        # Fallback render if subtitle filter has permission issue
-        if not os.path.exists("output.mp4") or os.path.getsize("output.mp4") < 1000:
-            cmd_fallback = f'ffmpeg -y -i temp_input.mp4 -vf "ass=subtitles.ass" -c:a aac -c:v libx264 -preset ultrafast output.mp4'
-            subprocess.run(cmd_fallback, shell=True, capture_output=True)
+        subprocess.run(cmd_render, shell=True, capture_output=True)
 
         progress_bar.progress(100)
         status_text.empty()
 
-        # 5. Output Display & Download
+        # 5. Output Video Display & Download
         if os.path.exists("output.mp4") and os.path.getsize("output.mp4") > 1000:
-            st.success("⚡ Ready in Record Time!")
+            st.success("✅ Subtitled Reel Ready in Record Time!")
             with open("output.mp4", "rb") as vid_file:
                 video_bytes = vid_file.read()
                 st.video(video_bytes)
@@ -342,8 +349,8 @@ if uploaded_file:
                     use_container_width=True
                 )
         else:
-            st.error("Rendering failed. Please check logs.")
+            st.error("Rendering issue detected. Please check logs.")
 
         cleanup_files(["temp_input.mp4", "temp_audio.wav", "subtitles.ass", "output.mp4"])
         gc.collect()
-        
+    
